@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.0 — 2026-09-13
+
+- Feat: Monitor mode with system KPIs, PM2 dashboard, nginx site manager, Laravel logs, DevOps help kit and tooltip on truncated text
+
 ## v0.5.1 — 2026-09-13
 
 - Feat: update polling every 5 minutes and manual check-for-updates button
