@@ -1,7 +1,7 @@
 import { api } from "@/lib/api";
 import { useTabs } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { FolderOpen, TerminalSquare, X } from "lucide-react";
+import { Activity, FolderOpen, TerminalSquare, X } from "lucide-react";
 
 const statusColor = {
   connecting: "bg-yellow-400 animate-pulse",
@@ -75,6 +75,19 @@ export default function TabsBar() {
           >
             <FolderOpen className="size-3.5" />
             Arquivos
+          </button>
+          <button
+            className={cn(
+              "flex items-center gap-1.5 h-6 px-2 rounded text-xs transition-colors",
+              active.view === "monitor"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setView(active.serverId, "monitor")}
+            title="Monitor: KPIs, PM2 e ações rápidas"
+          >
+            <Activity className="size-3.5" />
+            Monitor
           </button>
         </div>
       )}

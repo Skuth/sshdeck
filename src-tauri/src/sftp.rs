@@ -250,6 +250,33 @@ fn emit_done(app: &tauri::AppHandle, server_id: &str, file: &str, total: u64) {
     );
 }
 
+/// Executa um comando no servidor pela sessão auxiliar (a mesma do SFTP) e
+/// retorna o stdout. Usado pelo Monitor (pm2, stats, detecção de ferramentas).
+#[tauri::command]
+pub async fn ssh_exec(
+    app: tauri::AppHandle,
+    server_id: String,
+    command: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = get_conn(&app, &server_id)?;
+        let g = conn.lock().unwrap();
+        let mut ch = g.0.channel_session().map_err(|e| e.to_string())?;
+        ch.exec(&command).map_err(|e| e.to_string())?;
+        let mut out = String::new();
+        ch.read_to_string(&mut out).map_err(|e| e.to_string())?;
+        let mut err = String::new();
+        std::io::Read::read_to_string(&mut ch.stderr(), &mut err).ok();
+        ch.wait_close().ok();
+        if out.is_empty() && ch.exit_status().unwrap_or(0) != 0 {
+            return Err(if err.is_empty() { "comando falhou".into() } else { err });
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 const MAX_EDIT_SIZE: u64 = 1_000_000;
 
 /// Lê um arquivo remoto como texto pro editor embutido.

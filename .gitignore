@@ -26,3 +26,7 @@ dist-ssr
 # credenciais locais — nunca commitar
 servers.local.json
 .release-notes.md
+
+# skills locais (reinstala via skills-lock.json: npx skills add)
+.agents/
+.claude/

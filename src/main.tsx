@@ -31,6 +31,7 @@ class ErrorBoundary extends React.Component<
   }
 }
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./index.css";
 import "@xterm/xterm/css/xterm.css";
 
@@ -42,7 +43,9 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <TooltipProvider delayDuration={300}>
+        <App />
+      </TooltipProvider>
       <Toaster position="bottom-right" theme="dark" />
     </QueryClientProvider>
   </ErrorBoundary>,

@@ -96,6 +96,8 @@ export const api = {
     invoke<number>("sftp_download_dir", { serverId, remotePath, localPath }),
   sftpUpload: (serverId: string, localPath: string, remotePath: string) =>
     invoke<void>("sftp_upload", { serverId, localPath, remotePath }),
+  sshExec: (serverId: string, command: string) =>
+    invoke<string>("ssh_exec", { serverId, command }),
   sftpReadText: (serverId: string, path: string) =>
     invoke<string>("sftp_read_text", { serverId, path }),
   sftpWriteText: (serverId: string, path: string, content: string) =>

@@ -57,9 +57,12 @@ const BY_EXT: Record<string, string> = {
   toml: "toml",
 };
 
-/** Nome do arquivo → id de linguagem do Prism (null = sem highlight). */
-export function detectLang(filename: string): string | null {
-  const name = filename.toLowerCase();
+/** Nome ou caminho do arquivo → id de linguagem do Prism (null = sem highlight). */
+export function detectLang(fileOrPath: string): string | null {
+  const full = fileOrPath.toLowerCase();
+  const name = full.split("/").pop() ?? full;
+  // configs do nginx normalmente não têm extensão (sites-enabled/meusite)
+  if (full.includes("/nginx/")) return "nginx";
   if (name === "dockerfile") return "docker";
   if (name === ".env" || name.startsWith(".env.") || name.endsWith(".env")) return "properties";
   if (name.includes("nginx") && name.endsWith(".conf")) return "nginx";

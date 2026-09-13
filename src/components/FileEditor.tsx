@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import RSCEditor from "react-simple-code-editor";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, b64encode } from "@/lib/api";
 import { detectLang, highlightCode } from "@/lib/highlight";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import Truncated from "@/components/Truncated";
 import { FileCode2, Loader2, Save } from "lucide-react";
 
 // interop CJS/ESM: dependendo do bundling o default vem aninhado
@@ -36,7 +37,7 @@ export default function FileEditor({
 
   const dirty = content !== original;
   const name = path?.split("/").pop() ?? "";
-  const lang = detectLang(name);
+  const lang = detectLang(path ?? "");
 
   useEffect(() => {
     if (!path) return;
@@ -61,11 +62,24 @@ export default function FileEditor({
     if (!path || !dirty || saving) return;
     setSaving(true);
     try {
-      await api.sftpWriteText(serverId, path, content);
+      try {
+        await api.sftpWriteText(serverId, path, content);
+      } catch (e) {
+        // sem permissão de escrita (ex.: /etc/nginx é do root)? tenta sudo sem senha
+        const esc = path.replace(/'/g, `'\\''`);
+        await api
+          .sshExec(
+            serverId,
+            `printf '%s' '${b64encode(content)}' | base64 -d | sudo -n tee '${esc}' >/dev/null`,
+          )
+          .catch(() => {
+            throw e; // reporta o erro original se o sudo também falhar
+          });
+      }
       setOriginal(content);
       toast.success(`${name} salvo no servidor`);
     } catch (e) {
-      toast.error(String(e));
+      toast.error(`${e} — sem permissão? Edite pelo terminal com sudo nano.`);
     } finally {
       setSaving(false);
     }
@@ -88,7 +102,7 @@ export default function FileEditor({
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 font-mono text-sm">
             <FileCode2 className="size-4 text-primary shrink-0" />
-            <span className="truncate">{name}</span>
+            <Truncated text={name} tooltip={path ?? name} mono />
             {lang && (
               <span className="text-[9px] uppercase tracking-wider bg-muted rounded px-1.5 py-px text-muted-foreground shrink-0">
                 {lang}

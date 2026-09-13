@@ -7,6 +7,7 @@ import Sidebar from "@/components/Sidebar";
 import TabsBar from "@/components/TabsBar";
 import TerminalView from "@/components/TerminalView";
 import SftpPanel from "@/components/SftpPanel";
+import MonitorPanel from "@/components/MonitorPanel";
 import { TerminalSquare } from "lucide-react";
 
 export default function App() {
@@ -62,6 +63,11 @@ export default function App() {
               {t.view === "gui" && t.status === "connected" && (
                 <div className="absolute inset-0 z-10 bg-background">
                   <SftpPanel serverId={t.serverId} full />
+                </div>
+              )}
+              {t.view === "monitor" && t.status === "connected" && (
+                <div className="absolute inset-0 z-10 bg-background">
+                  <MonitorPanel serverId={t.serverId} />
                 </div>
               )}
             </div>

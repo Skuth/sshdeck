@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 export type TabStatus = "connecting" | "connected" | "closed";
-export type TabView = "terminal" | "gui";
+export type TabView = "terminal" | "gui" | "monitor";
 
 export interface Tab {
   serverId: string;

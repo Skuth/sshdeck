@@ -51,6 +51,7 @@ pub fn run() {
             sftp::sftp_home,
             sftp::sftp_download,
             sftp::sftp_download_dir,
+            sftp::ssh_exec,
             sftp::sftp_read_text,
             sftp::sftp_write_text,
             sftp::sftp_upload,
