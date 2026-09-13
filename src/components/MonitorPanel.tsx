@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import FileEditor from "@/components/FileEditor";
 import Truncated from "@/components/Truncated";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   Activity,
   AlertTriangle,
@@ -33,6 +34,7 @@ import {
   HardDrive,
   LifeBuoy,
   Link2,
+  ListOrdered,
   Loader2,
   MemoryStick,
   PencilLine,
@@ -42,6 +44,7 @@ import {
   ScrollText,
   SquareTerminal,
   Terminal,
+  Trash2,
   Unlink,
   X,
 } from "lucide-react";
@@ -210,6 +213,43 @@ interface Pm2Proc {
   name: string;
   monit: { cpu: number; memory: number };
   pm2_env: { status: string; restart_time: number; pm_uptime: number };
+}
+
+/** Processo PM2 que parece ser worker de fila. */
+const isQueueWorker = (p: Pm2Proc) => /queue|worker|horizon|bull/i.test(p.name);
+
+/* ---------- filas (Laravel: pendentes via Queue::size, falhas via failed_jobs) ---------- */
+
+// ponytail: mede só a fila default de cada app; por-fila nomeada se precisarem
+const QUEUES_CMD = `for a in $(find /var/www /home -maxdepth 4 -name artisan 2>/dev/null | head -3); do d=$(dirname "$a"); echo "==APP=> $d"; cd "$d" && timeout 15 php artisan tinker --execute='echo json_encode(["pending"=>Queue::size(),"failed"=>DB::table("failed_jobs")->count()]);' 2>/dev/null; echo; cd /; done; true`;
+
+interface QueueApp {
+  dir: string;
+  name: string;
+  pending: number;
+  failed: number;
+}
+
+function parseQueues(raw: string): QueueApp[] {
+  const apps: QueueApp[] = [];
+  for (const sec of raw.split(/^==APP=> /m).filter(Boolean)) {
+    const nl = sec.indexOf("\n");
+    const dir = sec.slice(0, nl).trim();
+    const jsonMatch = sec.slice(nl).match(/\{[^}]*\}/);
+    if (!jsonMatch) continue;
+    try {
+      const j = JSON.parse(jsonMatch[0]);
+      apps.push({
+        dir,
+        name: dir.split("/").pop() ?? dir,
+        pending: Number(j.pending) || 0,
+        failed: Number(j.failed) || 0,
+      });
+    } catch {
+      /* app sem tinker/fila configurada — ignora */
+    }
+  }
+  return apps;
 }
 
 const PM2_STATUS: Record<string, { label: string; color: string; Icon: typeof CircleCheck }> = {
@@ -936,6 +976,45 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
     },
   });
 
+  const hasLaravel = tools?.includes("laravel");
+  const workers = (pm2 ?? []).filter(isQueueWorker);
+  const { data: queues, isFetching: queuesLoading } = useQuery({
+    queryKey: ["queues", serverId],
+    enabled: !!hasLaravel,
+    refetchInterval: 10000,
+    queryFn: async () => {
+      const apps = parseQueues(await api.sshExec(serverId, QUEUES_CMD));
+      for (const a of apps) push(`q:${a.dir}`, a.pending);
+      return apps;
+    },
+  });
+
+  const [confirmFlush, setConfirmFlush] = useState<QueueApp | null>(null);
+
+  const queueAction = async (app: QueueApp, cmd: string, okMsg: string) => {
+    try {
+      await api.sshExec(serverId, `cd '${app.dir}' && timeout 30 php artisan ${cmd} 2>&1`);
+      toast.success(okMsg);
+      queryClient.invalidateQueries({ queryKey: ["queues", serverId] });
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
+  const restartWorkers = async () => {
+    try {
+      // avisa os workers pra reiniciarem após o job atual + restart nos processos pm2
+      for (const app of queues ?? [])
+        await api.sshExec(serverId, `cd '${app.dir}' && php artisan queue:restart 2>/dev/null; true`);
+      if (workers.length)
+        await api.sshExec(serverId, `pm2 restart ${workers.map((w) => w.pm_id).join(" ")}`);
+      toast.success("Workers reiniciados");
+      queryClient.invalidateQueries({ queryKey: ["pm2", serverId] });
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
+
   const {
     data: actionOut,
     isFetching: actionLoading,
@@ -1183,6 +1262,135 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
                 </tbody>
               </table>
             </div>
+          </section>
+        )}
+
+        {/* Filas */}
+        {(hasLaravel || workers.length > 0) && (
+          <section>
+            <div className="flex items-baseline justify-between mb-2.5">
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <ListOrdered className="size-4 text-primary" /> Filas
+                {workers.length > 0 && (
+                  <span className="text-[11px] font-normal text-muted-foreground">
+                    {workers.filter((w) => w.pm2_env.status === "online").length}/{workers.length}{" "}
+                    worker(s) online
+                  </span>
+                )}
+              </h2>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] text-muted-foreground">atualiza a cada 10s</span>
+                {(workers.length > 0 || (queues?.length ?? 0) > 0) && (
+                  <Button variant="secondary" size="sm" className="h-6 text-[11px]" onClick={restartWorkers}>
+                    <RotateCw className="size-3" /> Reiniciar workers
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {workers.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2.5">
+                {workers.map((w) => {
+                  const st = PM2_STATUS[w.pm2_env.status] ?? PM2_STATUS.stopped;
+                  return (
+                    <span
+                      key={w.pm_id}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-2.5 py-1 text-xs font-mono"
+                      title={`pm2 id ${w.pm_id} — ${st.label}, ${w.pm2_env.restart_time} restarts`}
+                    >
+                      <span className="size-1.5 rounded-full" style={{ backgroundColor: st.color }} />
+                      {w.name}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            {queuesLoading && !queues && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground p-3">
+                <Loader2 className="size-4 animate-spin" /> Medindo filas dos apps Laravel…
+              </div>
+            )}
+
+            <div className="grid sm:grid-cols-2 gap-2.5">
+              {queues?.map((q) => (
+                <div key={q.dir} className="rounded-xl border border-border bg-card/60 p-3.5 grid gap-2.5">
+                  <Truncated
+                    text={q.name}
+                    tooltip={q.dir}
+                    mono
+                    className="text-xs font-semibold"
+                  />
+                  <div className="flex items-end justify-between gap-3">
+                    <div className="grid gap-0.5">
+                      <span className="text-[11px] text-muted-foreground">jobs na fila</span>
+                      <span
+                        className={cn(
+                          "text-2xl font-semibold tabular-nums leading-none",
+                          q.pending > 500 && "text-[#e8c26e]",
+                        )}
+                      >
+                        {q.pending.toLocaleString("pt-BR")}
+                      </span>
+                    </div>
+                    <Sparkline data={history.current[`q:${q.dir}`] ?? []} color="#5fd0d8" />
+                    <div className="grid gap-0.5 text-right">
+                      <span className="text-[11px] text-muted-foreground">falhas</span>
+                      <span
+                        className={cn(
+                          "text-2xl font-semibold tabular-nums leading-none",
+                          q.failed > 0 ? "text-[#f2778c]" : "text-muted-foreground",
+                        )}
+                      >
+                        {q.failed.toLocaleString("pt-BR")}
+                      </span>
+                    </div>
+                  </div>
+                  {q.failed > 0 && (
+                    <div className="flex gap-1.5">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="h-6 text-[11px] flex-1"
+                        title="php artisan queue:retry all"
+                        onClick={() =>
+                          queueAction(q, "queue:retry all", `Falhas de "${q.name}" reenfileiradas`)
+                        }
+                      >
+                        <RotateCw className="size-3" /> Reprocessar falhas
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-[11px] text-destructive hover:text-destructive"
+                        title="php artisan queue:flush"
+                        onClick={() => setConfirmFlush(q)}
+                      >
+                        <Trash2 className="size-3" /> Limpar
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {queues && queues.length === 0 && (
+                <p className="text-sm text-muted-foreground p-2 sm:col-span-2">
+                  Nenhum app Laravel com fila mensurável encontrado (precisa do tinker disponível).
+                </p>
+              )}
+            </div>
+
+            <ConfirmDialog
+              open={confirmFlush !== null}
+              onOpenChange={(o) => !o && setConfirmFlush(null)}
+              title="Apagar todas as falhas?"
+              description={`As ${confirmFlush?.failed} falha(s) de "${confirmFlush?.name}" serão apagadas PERMANENTEMENTE (queue:flush). Sem desfazer.`}
+              confirmLabel="Apagar falhas"
+              onConfirm={() => {
+                const q = confirmFlush!;
+                setConfirmFlush(null);
+                queueAction(q, "queue:flush", `Falhas de "${q.name}" apagadas`);
+              }}
+            />
           </section>
         )}
 
