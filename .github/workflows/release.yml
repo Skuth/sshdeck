@@ -38,6 +38,8 @@ jobs:
 
       - id: bump
         run: |
+          # o checkout do dispatch pode vir defasado — garante a main mais recente
+          git pull --ff-only origin main
           VERSION=$(node scripts/bump.mjs ${{ inputs.bump }})
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
