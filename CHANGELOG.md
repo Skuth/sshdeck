@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.0 — 2026-09-13
+
+- Feat: queue monitoring in Monitor with pending/failed KPIs, worker status and retry/flush actions
+
 ## v0.6.0 — 2026-09-13
 
 - Feat: Monitor mode with system KPIs, PM2 dashboard, nginx site manager, Laravel logs, DevOps help kit and tooltip on truncated text
