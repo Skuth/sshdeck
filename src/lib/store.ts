@@ -1,28 +1,28 @@
 import { create } from "zustand";
 
 export type TabStatus = "connecting" | "connected" | "closed";
+export type TabView = "terminal" | "gui";
 
 export interface Tab {
   serverId: string;
   name: string;
   status: TabStatus;
+  view: TabView; // terminal é o padrão; gui = gerenciador de arquivos
 }
 
 interface TabsState {
   tabs: Tab[];
   activeId: string | null;
-  sftpOpen: boolean;
   openTab: (serverId: string, name: string) => boolean; // false se já existia
   setStatus: (serverId: string, status: TabStatus) => void;
+  setView: (serverId: string, view: TabView) => void;
   closeTab: (serverId: string) => void;
   setActive: (serverId: string) => void;
-  toggleSftp: () => void;
 }
 
 export const useTabs = create<TabsState>((set, get) => ({
   tabs: [],
   activeId: null,
-  sftpOpen: false,
   openTab: (serverId, name) => {
     const exists = get().tabs.some((t) => t.serverId === serverId);
     if (exists) {
@@ -30,7 +30,7 @@ export const useTabs = create<TabsState>((set, get) => ({
       return false;
     }
     set((s) => ({
-      tabs: [...s.tabs, { serverId, name, status: "connecting" }],
+      tabs: [...s.tabs, { serverId, name, status: "connecting", view: "terminal" }],
       activeId: serverId,
     }));
     return true;
@@ -39,6 +39,10 @@ export const useTabs = create<TabsState>((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.serverId === serverId ? { ...t, status } : t)),
     })),
+  setView: (serverId, view) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.serverId === serverId ? { ...t, view } : t)),
+    })),
   closeTab: (serverId) =>
     set((s) => {
       const tabs = s.tabs.filter((t) => t.serverId !== serverId);
@@ -46,9 +50,7 @@ export const useTabs = create<TabsState>((set, get) => ({
         tabs,
         activeId:
           s.activeId === serverId ? (tabs.length ? tabs[tabs.length - 1].serverId : null) : s.activeId,
-        sftpOpen: tabs.length ? s.sftpOpen : false,
       };
     }),
   setActive: (serverId) => set({ activeId: serverId }),
-  toggleSftp: () => set((s) => ({ sftpOpen: !s.sftpOpen })),
 }));

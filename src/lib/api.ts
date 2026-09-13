@@ -96,7 +96,13 @@ export const api = {
     invoke<number>("sftp_download_dir", { serverId, remotePath, localPath }),
   sftpUpload: (serverId: string, localPath: string, remotePath: string) =>
     invoke<void>("sftp_upload", { serverId, localPath, remotePath }),
+  sftpReadText: (serverId: string, path: string) =>
+    invoke<string>("sftp_read_text", { serverId, path }),
+  sftpWriteText: (serverId: string, path: string, content: string) =>
+    invoke<void>("sftp_write_text", { serverId, path, content }),
   sftpMkdir: (serverId: string, path: string) => invoke<void>("sftp_mkdir", { serverId, path }),
+  sftpRename: (serverId: string, from: string, to: string) =>
+    invoke<void>("sftp_rename", { serverId, from, to }),
   sftpRemove: (serverId: string, path: string, isDir: boolean) =>
     invoke<void>("sftp_remove", { serverId, path, isDir }),
 

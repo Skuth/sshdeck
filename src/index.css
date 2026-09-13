@@ -94,3 +94,13 @@
     @apply font-sans;
     }
 }
+/* Prism — paleta dark do editor embutido */
+.token.comment, .token.prolog, .token.cdata { color: #5a6274; font-style: italic; }
+.token.string, .token.attr-value, .token.char, .token.inserted { color: #57d9a3; }
+.token.number, .token.boolean, .token.constant { color: #e8c26e; }
+.token.keyword, .token.rule, .token.important, .token.atrule { color: #c795f0; }
+.token.function, .token.class-name { color: #6ea8f7; }
+.token.operator, .token.punctuation, .token.combinator { color: #8a93a8; }
+.token.property, .token.attr-name, .token.key, .token.variable { color: #5fd0d8; }
+.token.selector, .token.tag, .token.deleted { color: #f2778c; }
+.token.url, .token.regex { color: #7ee6ee; }

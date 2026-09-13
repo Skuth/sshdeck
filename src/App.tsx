@@ -11,7 +11,7 @@ import { TerminalSquare } from "lucide-react";
 
 export default function App() {
   const [status, setStatus] = useState<VaultStatus | null>(null);
-  const { tabs, activeId, sftpOpen } = useTabs();
+  const { tabs, activeId } = useTabs();
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -32,14 +32,12 @@ export default function App() {
     );
   }
 
-  const activeTab = tabs.find((t) => t.serverId === activeId);
-
   return (
     <div className="h-screen flex bg-background text-foreground overflow-hidden">
       <Sidebar
         onLock={async () => {
           for (const t of tabs) await api.sshDisconnect(t.serverId).catch(() => {});
-          useTabs.setState({ tabs: [], activeId: null, sftpOpen: false });
+          useTabs.setState({ tabs: [], activeId: null });
           await api.vaultLock();
           queryClient.clear();
           setStatus("locked");
@@ -57,7 +55,15 @@ export default function App() {
                   : "absolute inset-0 invisible pointer-events-none"
               }
             >
-              <TerminalView serverId={t.serverId} active={t.serverId === activeId} />
+              <TerminalView
+                serverId={t.serverId}
+                active={t.serverId === activeId && t.view === "terminal"}
+              />
+              {t.view === "gui" && t.status === "connected" && (
+                <div className="absolute inset-0 z-10 bg-background">
+                  <SftpPanel serverId={t.serverId} full />
+                </div>
+              )}
             </div>
           ))}
           {tabs.length === 0 && (
@@ -68,9 +74,6 @@ export default function App() {
           )}
         </div>
       </main>
-      {sftpOpen && activeTab && activeTab.status === "connected" && (
-        <SftpPanel key={activeTab.serverId} serverId={activeTab.serverId} />
-      )}
     </div>
   );
 }

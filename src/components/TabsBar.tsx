@@ -1,8 +1,7 @@
 import { api } from "@/lib/api";
 import { useTabs } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { FolderOpen, X } from "lucide-react";
+import { FolderOpen, TerminalSquare, X } from "lucide-react";
 
 const statusColor = {
   connecting: "bg-yellow-400 animate-pulse",
@@ -11,7 +10,8 @@ const statusColor = {
 };
 
 export default function TabsBar() {
-  const { tabs, activeId, setActive, closeTab, sftpOpen, toggleSftp } = useTabs();
+  const { tabs, activeId, setActive, closeTab, setView } = useTabs();
+  const active = tabs.find((t) => t.serverId === activeId);
   if (tabs.length === 0) return null;
 
   const close = (serverId: string) => {
@@ -48,16 +48,36 @@ export default function TabsBar() {
           </div>
         ))}
       </div>
-      <Button
-        variant={sftpOpen ? "secondary" : "ghost"}
-        size="sm"
-        className="mx-1 h-7 text-xs"
-        onClick={toggleSftp}
-        title="Arquivos (SFTP)"
-      >
-        <FolderOpen className="size-3.5" />
-        SFTP
-      </Button>
+      {active && active.status === "connected" && (
+        <div className="flex items-center gap-0.5 mx-1.5 p-0.5 rounded-md bg-muted/60 shrink-0">
+          <button
+            className={cn(
+              "flex items-center gap-1.5 h-6 px-2 rounded text-xs transition-colors",
+              active.view === "terminal"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setView(active.serverId, "terminal")}
+            title="Modo terminal"
+          >
+            <TerminalSquare className="size-3.5" />
+            Terminal
+          </button>
+          <button
+            className={cn(
+              "flex items-center gap-1.5 h-6 px-2 rounded text-xs transition-colors",
+              active.view === "gui"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            onClick={() => setView(active.serverId, "gui")}
+            title="Modo arquivos (GUI)"
+          >
+            <FolderOpen className="size-3.5" />
+            Arquivos
+          </button>
+        </div>
+      )}
     </div>
   );
 }

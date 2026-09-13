@@ -250,12 +250,75 @@ fn emit_done(app: &tauri::AppHandle, server_id: &str, file: &str, total: u64) {
     );
 }
 
+const MAX_EDIT_SIZE: u64 = 1_000_000;
+
+/// Lê um arquivo remoto como texto pro editor embutido.
+#[tauri::command]
+pub async fn sftp_read_text(
+    app: tauri::AppHandle,
+    server_id: String,
+    path: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = get_conn(&app, &server_id)?;
+        let g = conn.lock().unwrap();
+        let mut f = g.1.open(Path::new(&path)).map_err(|e| e.to_string())?;
+        let size = f.stat().map_err(|e| e.to_string())?.size.unwrap_or(0);
+        if size > MAX_EDIT_SIZE {
+            return Err("Arquivo muito grande pro editor (limite 1 MB) — baixe pra editar".into());
+        }
+        let mut buf = Vec::with_capacity(size as usize);
+        f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+        if buf.contains(&0) {
+            return Err("Arquivo binário — não dá pra editar como texto".into());
+        }
+        String::from_utf8(buf).map_err(|_| "Arquivo não é UTF-8".into())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Salva o conteúdo do editor embutido de volta no servidor.
+#[tauri::command]
+pub async fn sftp_write_text(
+    app: tauri::AppHandle,
+    server_id: String,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = get_conn(&app, &server_id)?;
+        let g = conn.lock().unwrap();
+        let mut f = g.1.create(Path::new(&path)).map_err(|e| e.to_string())?;
+        f.write_all(content.as_bytes()).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub async fn sftp_mkdir(app: tauri::AppHandle, server_id: String, path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let conn = get_conn(&app, &server_id)?;
         let g = conn.lock().unwrap();
         g.1.mkdir(Path::new(&path), 0o755).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn sftp_rename(
+    app: tauri::AppHandle,
+    server_id: String,
+    from: String,
+    to: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = get_conn(&app, &server_id)?;
+        let g = conn.lock().unwrap();
+        g.1.rename(Path::new(&from), Path::new(&to), None)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
