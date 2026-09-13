@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.0 — 2026-09-13
+
+- Feat: open remote files in nano/vim from the SFTP panel
+- Feat: full changelog viewer, server export with vault confirmation, semver release badge
+
 ## v0.3.0 — 2026-09-13
 
 - Fix: sync main before version bump in release pipeline
