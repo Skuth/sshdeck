@@ -121,4 +121,21 @@ jobs:
             > ```
           releaseDraft: false
           prerelease: false
+          # o latest.json é gerado pelo job updater-json — evita a race dos
+          # builds paralelos atualizando o mesmo asset
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
+
+  updater-json:
+    needs: [version, build]
+    # roda mesmo se um build falhar, pra publicar o latest.json das plataformas que saíram
+    if: always() && needs.version.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - run: node scripts/updater-json.mjs "${{ needs.version.outputs.tag }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
