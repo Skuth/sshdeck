@@ -88,6 +88,8 @@ export const api = {
   sftpHome: (serverId: string) => invoke<string>("sftp_home", { serverId }),
   sftpDownload: (serverId: string, remotePath: string, localPath: string) =>
     invoke<void>("sftp_download", { serverId, remotePath, localPath }),
+  sftpDownloadDir: (serverId: string, remotePath: string, localPath: string) =>
+    invoke<number>("sftp_download_dir", { serverId, remotePath, localPath }),
   sftpUpload: (serverId: string, localPath: string, remotePath: string) =>
     invoke<void>("sftp_upload", { serverId, localPath, remotePath }),
   sftpMkdir: (serverId: string, path: string) => invoke<void>("sftp_mkdir", { serverId, path }),

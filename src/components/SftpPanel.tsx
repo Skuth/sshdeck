@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ArrowUp,
   Download,
@@ -24,6 +25,7 @@ import {
   RefreshCw,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 
 function parent(path: string): string {
@@ -41,6 +43,17 @@ export default function SftpPanel({ serverId }: { serverId: string }) {
   const [deleteTarget, setDeleteTarget] = useState<SftpEntry | null>(null);
   const [mkdirOpen, setMkdirOpen] = useState(false);
   const [mkdirName, setMkdirName] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => setSelected(new Set()), [path]);
+
+  const toggleSelect = (p: string) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(p)) n.delete(p);
+      else n.add(p);
+      return n;
+    });
 
   useEffect(() => {
     api.sftpHome(serverId).then(setPath).catch((e) => toast.error(String(e)));
@@ -66,10 +79,39 @@ export default function SftpPanel({ serverId }: { serverId: string }) {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["sftp", serverId, path] });
 
   const download = async (entry: SftpEntry) => {
+    if (entry.isDir) {
+      const dest = await openFile({ directory: true, multiple: false });
+      if (typeof dest !== "string") return;
+      toast.info(`Baixando pasta ${entry.name}…`);
+      api.sftpDownloadDir(serverId, entry.path, `${dest}/${entry.name}`)
+        .then((skipped) => {
+          if (skipped > 0) toast.warning(`${skipped} item(ns) pulado(s) (sem permissão ou link quebrado)`);
+        })
+        .catch((e) => toast.error(String(e)));
+      return;
+    }
     const dest = await saveFile({ defaultPath: entry.name });
     if (!dest) return;
     toast.info(`Baixando ${entry.name}…`);
     api.sftpDownload(serverId, entry.path, dest).catch((e) => toast.error(String(e)));
+  };
+
+  const downloadSelected = async () => {
+    const items = (entries ?? []).filter((e) => selected.has(e.path));
+    if (!items.length) return;
+    const dest = await openFile({ directory: true, multiple: false });
+    if (typeof dest !== "string") return;
+    setSelected(new Set());
+    toast.info(`Baixando ${items.length} item(ns)…`);
+    for (const e of items) {
+      try {
+        if (e.isDir) await api.sftpDownloadDir(serverId, e.path, `${dest}/${e.name}`);
+        else await api.sftpDownload(serverId, e.path, `${dest}/${e.name}`);
+      } catch (err) {
+        toast.error(`${e.name}: ${err}`);
+      }
+    }
+    toast.success(`Download concluído em ${dest}`);
   };
 
   const upload = async () => {
@@ -129,6 +171,25 @@ export default function SftpPanel({ serverId }: { serverId: string }) {
         />
       </div>
 
+      {selected.size > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-primary/8">
+          <span className="text-xs text-muted-foreground flex-1">
+            {selected.size} selecionado(s)
+          </span>
+          <Button size="sm" className="h-7 text-xs" onClick={downloadSelected}>
+            <Download className="size-3.5" /> Baixar
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="Limpar seleção"
+            onClick={() => setSelected(new Set())}
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+      )}
+
       {progress && (
         <div className="px-3 py-2 border-b border-border">
           <p className="text-xs truncate mb-1">{progress.file.split("/").pop()}</p>
@@ -158,6 +219,19 @@ export default function SftpPanel({ serverId }: { serverId: string }) {
             onDoubleClick={() => !e.isDir && download(e)}
             title={e.isDir ? e.name : `${e.name} — duplo click para baixar`}
           >
+            <span
+              className={
+                selected.size > 0 || selected.has(e.path)
+                  ? "flex"
+                  : "hidden group-hover:flex"
+              }
+              onClick={(ev) => ev.stopPropagation()}
+            >
+              <Checkbox
+                checked={selected.has(e.path)}
+                onCheckedChange={() => toggleSelect(e.path)}
+              />
+            </span>
             {e.isDir ? (
               <Folder className="size-4 text-primary/80 shrink-0" />
             ) : (
@@ -170,18 +244,16 @@ export default function SftpPanel({ serverId }: { serverId: string }) {
               </span>
             )}
             <div className="hidden group-hover:flex gap-1">
-              {!e.isDir && (
-                <button
-                  className="text-muted-foreground hover:text-primary"
-                  title="Baixar"
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    download(e);
-                  }}
-                >
-                  <Download className="size-4" />
-                </button>
-              )}
+              <button
+                className="text-muted-foreground hover:text-primary"
+                title={e.isDir ? "Baixar pasta completa" : "Baixar"}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  download(e);
+                }}
+              >
+                <Download className="size-4" />
+              </button>
               <button
                 className="text-muted-foreground hover:text-destructive"
                 title="Excluir"
