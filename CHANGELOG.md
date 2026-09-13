@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.5.0 — 2026-09-13
+
+- Feat: GUI file manager mode with embedded syntax-highlighted editor, grid view, context menu and rename
+- Fix: generate updater latest.json in a single job to avoid race between parallel builds
+
 ## v0.4.0 — 2026-09-13
 
 - Feat: open remote files in nano/vim from the SFTP panel
