@@ -6,7 +6,7 @@
 
 **Cliente SSH estilo Termius — rápido, dark e com suas credenciais criptografadas.**
 
-[![Release](https://img.shields.io/github/v/release/Skuth/sshdeck?style=flat-square&color=57d9a3&labelColor=1c2028)](https://github.com/Skuth/sshdeck/releases)
+[![Release](https://img.shields.io/github/v/release/Skuth/sshdeck?sort=semver&style=flat-square&color=57d9a3&labelColor=1c2028)](https://github.com/Skuth/sshdeck/releases)
 [![License](https://img.shields.io/badge/license-MIT-6ea8f7?style=flat-square&labelColor=1c2028)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2-c795f0?style=flat-square&labelColor=1c2028)](https://tauri.app)
 [![Platform](https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-e8c26e?style=flat-square&labelColor=1c2028)](https://github.com/Skuth/sshdeck/releases)

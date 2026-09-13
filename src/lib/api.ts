@@ -66,6 +66,10 @@ export const api = {
   vaultCreate: (password: string) => invoke<void>("vault_create", { password }),
   vaultUnlock: (password: string) => invoke<VaultData>("vault_unlock", { password }),
   vaultLock: () => invoke<void>("vault_lock"),
+  verifyMasterPassword: (password: string) =>
+    invoke<boolean>("verify_master_password", { password }),
+  writeTextFile: (path: string, content: string) =>
+    invoke<void>("write_text_file", { path, content }),
   getVault: () => invoke<VaultData>("get_vault"),
   saveServer: (server: Server) => invoke<void>("save_server", { server }),
   deleteServer: (id: string) => invoke<void>("delete_server", { id }),

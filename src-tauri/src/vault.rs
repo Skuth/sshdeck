@@ -247,6 +247,17 @@ pub fn vault_unlock(
     Ok(data)
 }
 
+/// Reconfirma a senha-mestre (usada pra liberar export com senhas).
+#[tauri::command]
+pub fn verify_master_password(
+    state: tauri::State<VaultState>,
+    password: String,
+) -> Result<bool, String> {
+    let guard = state.lock().unwrap();
+    let v = guard.as_ref().ok_or("Vault está travado")?;
+    Ok(derive_key(&password, &v.salt)? == v.key)
+}
+
 #[tauri::command]
 pub fn vault_lock(state: tauri::State<VaultState>) {
     *state.lock().unwrap() = None;
