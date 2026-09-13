@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.1 — 2026-09-13
+
+- Feat: update polling every 5 minutes and manual check-for-updates button
+
 ## v0.5.0 — 2026-09-13
 
 - Feat: GUI file manager mode with embedded syntax-highlighted editor, grid view, context menu and rename
