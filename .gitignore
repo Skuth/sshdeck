@@ -25,3 +25,4 @@ dist-ssr
 
 # credenciais locais — nunca commitar
 servers.local.json
+.release-notes.md

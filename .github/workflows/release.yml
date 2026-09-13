@@ -1,19 +1,59 @@
-# Release manual: builda macOS (arm64 + Intel), Windows e Linux e publica os
-# instaladores numa Release do GitHub com a tag informada.
+# Release manual com versionamento automático:
+# 1. job "version" roda scripts/bump.mjs (patch/minor/major), atualiza CHANGELOG.md,
+#    commita, tagueia e faz push.
+# 2. job "build" compila macOS (arm64 + Intel), Windows e Linux na tag nova e
+#    publica os instaladores numa Release com o changelog como corpo.
 name: Release
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Tag da release (ex.: v0.1.0)"
+      bump:
+        description: "Tipo de bump de versão"
         required: true
+        type: choice
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+      notes: ${{ steps.bump.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - id: bump
+        run: |
+          VERSION=$(node scripts/bump.mjs ${{ inputs.bump }})
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+          git commit -m "Chore: release v$VERSION"
+          git tag "v$VERSION"
+          git push origin HEAD:main --tags
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          {
+            echo "notes<<NOTES_EOF"
+            cat .release-notes.md
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -34,6 +74,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
 
       - uses: actions/setup-node@v4
         with:
@@ -61,18 +103,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ inputs.version }}
-          releaseName: "SSHDeck ${{ inputs.version }}"
+          tagName: ${{ needs.version.outputs.tag }}
+          releaseName: "SSHDeck ${{ needs.version.outputs.tag }}"
           releaseBody: |
-            Instaladores para macOS (Apple Silicon e Intel), Windows e Linux.
+            ${{ needs.version.outputs.notes }}
+
+            ---
 
             > ⚠️ **macOS:** o app não é assinado (sem conta de desenvolvedor). Se aparecer
             > "app danificado" ou o Gatekeeper bloquear, rode uma vez no Terminal:
             > ```
             > xattr -dr com.apple.quarantine /Applications/SSHDeck.app
             > ```
-
-            Veja o README para instruções completas de instalação.
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
