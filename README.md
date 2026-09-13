@@ -81,14 +81,19 @@ Build local do instalador do seu sistema:
 npm run tauri build   # sai em src-tauri/target/release/bundle/
 ```
 
-### Pipeline de release (manual)
+### Pipeline de release (manual, com versionamento automático)
 
-O workflow [`release.yml`](.github/workflows/release.yml) builda **macOS (arm64 + Intel), Windows e Linux** e publica tudo numa Release do GitHub. Ele é disparado manualmente:
+O workflow [`release.yml`](.github/workflows/release.yml) cuida de tudo — você só escolhe o tamanho do bump:
 
-1. Ajuste a versão em `src-tauri/tauri.conf.json` e `package.json`
-2. GitHub → **Actions** → **Release** → **Run workflow**
-3. Informe a tag (ex.: `v0.2.0`) e rode
-4. Os instaladores das 4 variantes aparecem na Release criada com essa tag
+1. GitHub → **Actions** → **Release** → **Run workflow**
+2. Escolha o bump: `patch`, `minor` ou `major`
+3. A pipeline então:
+   - bumpa a versão em `package.json`, `tauri.conf.json`, `Cargo.toml` e `Cargo.lock` ([`scripts/bump.mjs`](scripts/bump.mjs))
+   - gera a seção nova do [`CHANGELOG.md`](CHANGELOG.md) com os commits desde a última release
+   - commita, cria a tag `vX.Y.Z` e faz push
+   - builda **macOS (arm64 + Intel), Windows e Linux** e publica a Release com o changelog no corpo
+
+Pela linha de comando: `gh workflow run Release -f bump=minor`
 
 ## 📥 Importando servidores
 
