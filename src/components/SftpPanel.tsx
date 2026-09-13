@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listen } from "@tauri-apps/api/event";
 import { open as openFile, save as saveFile } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
-import { api, formatBytes, SftpEntry, SftpProgress } from "@/lib/api";
+import { api, b64encode, formatBytes, SftpEntry, SftpProgress } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -23,6 +23,7 @@ import {
   FolderPlus,
   Loader2,
   RefreshCw,
+  SquarePen,
   Trash2,
   Upload,
   X,
@@ -121,6 +122,15 @@ export default function SftpPanel({ serverId }: { serverId: string }) {
     toast.info(`Enviando ${name}…`);
     api.sftpUpload(serverId, src, join(path, name))
       .then(refresh)
+      .catch((e) => toast.error(String(e)));
+  };
+
+  /** Abre o arquivo no editor do terminal da sessão: nano, ou vim se não tiver. */
+  const editInTerminal = (entry: SftpEntry) => {
+    const esc = entry.path.replace(/'/g, `'\\''`);
+    const cmd = `command -v nano >/dev/null 2>&1 && nano -- '${esc}' || vim -- '${esc}'\n`;
+    api.sshWrite(serverId, b64encode(cmd))
+      .then(() => toast.info(`Abrindo ${entry.name} no editor do terminal…`))
       .catch((e) => toast.error(String(e)));
   };
 
@@ -244,6 +254,18 @@ export default function SftpPanel({ serverId }: { serverId: string }) {
               </span>
             )}
             <div className="hidden group-hover:flex gap-1">
+              {!e.isDir && (
+                <button
+                  className="text-muted-foreground hover:text-primary"
+                  title="Editar no terminal (nano/vim)"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    editInTerminal(e);
+                  }}
+                >
+                  <SquarePen className="size-4" />
+                </button>
+              )}
               <button
                 className="text-muted-foreground hover:text-primary"
                 title={e.isDir ? "Baixar pasta completa" : "Baixar"}
