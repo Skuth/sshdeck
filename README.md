@@ -42,7 +42,7 @@ Com uma sessão conectada, o seletor na barra de abas alterna entre **Terminal**
 
 - **Servidor:** load/CPU, memória, disco e uptime com sparklines, a cada 5s
 - **Stack instalada:** versões de PHP, Composer, Node, npm, PM2, nginx, Docker, git e o SO
-- **PM2:** tabela ao vivo com id, modo (**cluster** com índice da instância, ou fork), badge **worker** pra processos de fila, status, CPU com histórico, memória, restarts e uptime. **Clicar na linha abre o "monit" daquele processo em tempo real** (2s): CPU e memória com gráfico, restarts instáveis, métricas custom do `pm2 monit` (heap, event loop…), script/cwd/node/logs, tail do stdout/stderr e ações restart · reload (cluster) · stop/start · seguir logs no terminal
+- **PM2:** tabela ao vivo com id, modo (**cluster** com índice da instância, ou fork), badge **worker** pra processos de fila, status, CPU com histórico, memória, restarts e uptime. **Clicar na linha abre o "monit" daquele processo em tempo real** (2s): CPU e memória com gráfico, restarts instáveis, métricas custom do `pm2 monit` (heap, event loop…), script/cwd/node/logs, logs parseados e coloridos por nível (timestamp, pid, filtro stdout/stderr, intercalados por horário) e ações restart · reload (cluster) · stop/start · seguir logs no terminal
 - **Ações rápidas** (aparecem conforme o que está instalado): testar/reload da config do nginx, log de erros, **gerenciador de sites** (ativar/desativar, criar com template e editar no editor embutido), logs Laravel parseados por nível, log do PHP-FPM, containers e uso do Docker, serviços com falha, disco por pasta e top processos. Várias são "ao vivo" (auto-refresh)
 - **Kit de ajuda:** receitas prontas (criar usuário, sudo, chave SSH, ufw, certbot…) pra copiar ou rodar no terminal
 

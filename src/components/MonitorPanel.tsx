@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, b64encode, formatBytes } from "@/lib/api";
 import { useTabs } from "@/lib/store";
+import { LogTone, parsePm2Logs, tsShort } from "@/lib/pm2log";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,38 +61,52 @@ function uptimeText(seconds: number): string {
   return `${m}m`;
 }
 
-/** Sparkline: linha 2px + área suave, dados reais acumulados no cliente. */
+/** Sparkline: linha 2px + área suave, dados reais acumulados no cliente.
+ *  Ocupa 100% da largura do pai (viewBox esticado, traço não escala). */
 function Sparkline({
   data,
   color,
   max,
-  w = 120,
   h = 32,
 }: {
   data: number[];
   color: string;
   max?: number;
-  w?: number;
   h?: number;
 }) {
+  const w = 100;
   if (data.length < 2)
     return (
       <div
-        className="rounded bg-muted/30"
-        style={{ width: w, height: h }}
+        className="rounded bg-muted/30 w-full min-w-0"
+        style={{ height: h }}
         title="coletando dados…"
       />
     );
-  const top = max ?? Math.max(...data, 0.0001);
+  // sem teto fixo, 25% de folga pra linha reta não virar um bloco colado no topo
+  const top = max ?? Math.max(...data, 0.0001) * 1.25;
   const pts = data.map((v, i) => [
     (i / (data.length - 1)) * w,
     h - 2 - Math.min(1, v / top) * (h - 4),
   ]);
   const line = pts.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   return (
-    <svg width={w} height={h} className="shrink-0" aria-hidden>
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      preserveAspectRatio="none"
+      className="block w-full min-w-0"
+      style={{ height: h }}
+      aria-hidden
+    >
       <polygon points={`0,${h} ${line} ${w},${h}`} fill={color} opacity={0.12} />
-      <polyline points={line} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      <polyline
+        points={line}
+        fill="none"
+        stroke={color}
+        strokeWidth={2}
+        strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
+      />
     </svg>
   );
 }
@@ -142,7 +157,7 @@ function PctCell({ value }: { value: number }) {
 /* ---------- dados do sistema ---------- */
 
 const STATS_CMD = `cat /proc/loadavg; nproc; free -b | awk 'NR==2{print $2,$3}'; df -B1 / | awk 'NR==2{print $2,$3}'; cat /proc/uptime`;
-const DETECT_CMD = `for c in pm2 nginx docker php composer node; do command -v $c >/dev/null 2>&1 && echo $c; done; [ -n "$(find /var/www /home -maxdepth 5 -type d -path '*storage/logs' 2>/dev/null | head -1)" ] && echo laravel; true`;
+const DETECT_CMD = `for c in pm2 nginx docker php composer node; do command -v $c >/dev/null 2>&1 && echo $c; done; command -v pm2 >/dev/null 2>&1 || pgrep -f "PM2 v" >/dev/null 2>&1 && echo pm2; [ -n "$(find /var/www /home -maxdepth 5 -type d -path '*storage/logs' 2>/dev/null | head -1)" ] && echo laravel; true`;
 const VERSIONS_CMD = `echo "php|$(php -v 2>/dev/null | head -1)"
 echo "php-instaladas|$(ls /etc/php 2>/dev/null | tr '\\n' ' ')"
 echo "composer|$(composer --version --no-ansi 2>/dev/null)"
@@ -990,6 +1005,110 @@ function Pm2Mode({ p }: { p: Pm2Proc }) {
   );
 }
 
+/* ---------- logs do pm2, parseados ---------- */
+
+const TONE_COLOR: Record<LogTone, string> = {
+  err: "#f2778c",
+  warn: "#e8c26e",
+  ok: "#57d9a3",
+  info: "#6ea8f7",
+  plain: "#d6dae4",
+};
+
+function Pm2Logs({ raw }: { raw: string | undefined }) {
+  const [filter, setFilter] = useState<"all" | "out" | "err">("all");
+  const ref = useRef<HTMLDivElement>(null);
+  const all = raw === undefined ? [] : parsePm2Logs(raw);
+  const shown = all.filter((l) => filter === "all" || l.stream === filter);
+  const errCount = all.filter((l) => l.stream === "err").length;
+  useEffect(() => {
+    const el = ref.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [raw, filter]);
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1.5">
+        <p className="text-[11px] text-muted-foreground">Logs</p>
+        <div className="flex items-center gap-0.5 p-0.5 rounded-md bg-muted/60 ml-auto">
+          {(
+            [
+              ["all", `tudo · ${all.length}`],
+              ["out", `stdout · ${all.length - errCount}`],
+              ["err", `stderr · ${errCount}`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              className={cn(
+                "h-5 px-2 rounded text-[10px] transition-colors",
+                filter === key
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+                key === "err" && errCount > 0 && filter !== key && "text-[#f2778c]",
+              )}
+              onClick={() => setFilter(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div
+        ref={ref}
+        className="rounded-lg bg-[#0b0e14] border border-border/60 h-64 overflow-y-auto font-mono text-[11px] leading-snug"
+      >
+        {raw === undefined && <p className="p-3 text-muted-foreground">carregando…</p>}
+        {raw !== undefined && shown.length === 0 && (
+          <p className="p-3 text-muted-foreground">(sem linhas)</p>
+        )}
+        {shown.map((l, i) => (
+          <div
+            key={i}
+            className={cn(
+              "flex gap-2 px-2 border-b border-border/30 border-l-2",
+              l.cont ? "py-0" : "py-1",
+              l.stream === "err"
+                ? "border-l-[#f2778c]/70 bg-[#f2778c]/[0.04]"
+                : "border-l-[#57d9a3]/40",
+            )}
+          >
+            <span className="w-16 shrink-0 text-muted-foreground/70 tabular-nums" title={l.ts}>
+              {l.cont ? "" : l.ts ? tsShort(l.ts) : "—"}
+            </span>
+            <span className="min-w-0 flex-1 break-all whitespace-pre-wrap">
+              {l.tags.map((t) => (
+                <span
+                  key={t}
+                  className="inline-block rounded px-1 mr-1.5 text-[9px] uppercase tracking-wide align-middle"
+                  style={{
+                    color: /^\d+$/.test(t)
+                      ? "#8a93a8"
+                      : TONE_COLOR[l.tone === "plain" ? "info" : l.tone],
+                    backgroundColor:
+                      (/^\d+$/.test(t)
+                        ? "#8a93a8"
+                        : TONE_COLOR[l.tone === "plain" ? "info" : l.tone]) + "1f",
+                  }}
+                  title={/^\d+$/.test(t) ? `pid ${t}` : t}
+                >
+                  {t}
+                </span>
+              ))}
+              <span
+                className={cn(l.cont && "pl-4 text-muted-foreground/80")}
+                style={{ color: l.cont ? undefined : TONE_COLOR[l.tone] }}
+              >
+                {l.msg}
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Pm2Detail({
   proc,
   history,
@@ -1008,19 +1127,13 @@ function Pm2Detail({
   const env = proc?.pm2_env;
   const logCmd =
     env &&
-    `tail -n 30 '${env.pm_err_log_path ?? ""}' 2>/dev/null | sed 's/^/E|/'; tail -n 60 '${env.pm_out_log_path ?? ""}' 2>/dev/null | sed 's/^/O|/'; true`;
+    `tail -n 60 '${env.pm_err_log_path ?? ""}' 2>/dev/null | sed 's/^/E|/'; tail -n 80 '${env.pm_out_log_path ?? ""}' 2>/dev/null | sed 's/^/O|/'; true`;
   const { data: logs } = useQuery({
     queryKey: ["pm2log", serverId, proc?.pm_id, logCmd],
     enabled: !!logCmd,
     refetchInterval: 2000,
     queryFn: () => api.sshExec(serverId, logCmd!),
   });
-  const logRef = useRef<HTMLPreElement>(null);
-  useEffect(() => {
-    const el = logRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [logs]);
-
   if (!proc || !env) return null;
   const st = PM2_STATUS[env.status] ?? { label: env.status, color: "#e8c26e", Icon: AlertTriangle };
   const online = env.status === "online";
@@ -1043,7 +1156,7 @@ function Pm2Detail({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 flex-wrap">
+          <DialogTitle className="flex items-center gap-2 flex-wrap pr-8">
             <RotateCw className="size-4 text-primary" />
             {proc.name}
             <span
@@ -1078,13 +1191,7 @@ function Pm2Detail({
             >
               {proc.monit.cpu}%
             </span>
-            <Sparkline
-              data={history[`pm2:${proc.pm_id}`] ?? []}
-              color="#6ea8f7"
-              max={100}
-              w={200}
-              h={40}
-            />
+            <Sparkline data={history[`pm2:${proc.pm_id}`] ?? []} color="#6ea8f7" max={100} h={40} />
           </div>
           <div className="rounded-xl border border-border bg-card/60 p-3 grid gap-1.5 col-span-2 lg:col-span-1">
             <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
@@ -1093,12 +1200,7 @@ function Pm2Detail({
             <span className="text-2xl font-semibold tabular-nums leading-none">
               {formatBytes(proc.monit.memory)}
             </span>
-            <Sparkline
-              data={history[`pm2mem:${proc.pm_id}`] ?? []}
-              color="#c795f0"
-              w={200}
-              h={40}
-            />
+            <Sparkline data={history[`pm2mem:${proc.pm_id}`] ?? []} color="#c795f0" h={40} />
           </div>
           <div className="rounded-xl border border-border bg-card/60 p-3 grid gap-1.5">
             <span className="text-[11px] text-muted-foreground">Restarts</span>
@@ -1210,27 +1312,7 @@ function Pm2Detail({
             ))}
         </div>
 
-        <div>
-          <p className="text-[11px] text-muted-foreground mb-1.5">Logs (stderr em vermelho)</p>
-          <pre
-            ref={logRef}
-            className="rounded-lg bg-[#0b0e14] border border-border/60 text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-all p-3 h-56 overflow-y-auto"
-          >
-            {logs === undefined
-              ? "carregando…"
-              : logs.trim()
-                ? logs
-                    .trim()
-                    .split("\n")
-                    .map((l, i) => (
-                      <span key={i} className={l.startsWith("E|") ? "text-[#f2778c]" : undefined}>
-                        {l.slice(2)}
-                        {"\n"}
-                      </span>
-                    ))
-                : "(logs vazios)"}
-          </pre>
-        </div>
+        <Pm2Logs raw={logs} />
       </DialogContent>
     </Dialog>
   );
@@ -1278,14 +1360,22 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
   });
 
   const hasPm2 = tools?.includes("pm2");
-  const { data: pm2, isLoading: pm2Loading } = useQuery({
+  const {
+    data: pm2,
+    isLoading: pm2Loading,
+    error: pm2Error,
+  } = useQuery({
     queryKey: ["pm2", serverId],
     enabled: !!hasPm2,
     // com o detalhe aberto vira "monit": 2s
     refetchInterval: detailId !== null ? 2000 : 4000,
     queryFn: async () => {
       const raw = await api.sshExec(serverId, "pm2 jlist 2>/dev/null");
-      const list: Pm2Proc[] = JSON.parse(raw.slice(raw.indexOf("[")));
+      // avisos "[PM2] ..." podem vir antes do JSON — começa no array de verdade
+      const start = raw.search(/\[\s*[{\]]/);
+      if (start < 0)
+        throw new Error(`pm2 jlist não devolveu JSON: ${raw.trim().slice(0, 200) || "(vazio)"}`);
+      const list: Pm2Proc[] = JSON.parse(raw.slice(start));
       for (const p of list) {
         push(`pm2:${p.pm_id}`, p.monit.cpu);
         push(`pm2mem:${p.pm_id}`, p.monit.memory);
@@ -1604,7 +1694,15 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
                         colSpan={10}
                         className="px-3 py-6 text-center text-sm text-muted-foreground"
                       >
-                        pm2 instalado, mas nenhum processo gerenciado.
+                        pm2 instalado, mas nenhum processo gerenciado por este usuário (pm2 é por
+                        usuário — os workers podem estar no pm2 de outro, ex.: root).
+                      </td>
+                    </tr>
+                  )}
+                  {!pm2 && pm2Error && (
+                    <tr>
+                      <td colSpan={10} className="px-3 py-4 text-sm text-[#f2778c] break-all">
+                        Falha ao ler o pm2: {String(pm2Error)}
                       </td>
                     </tr>
                   )}

@@ -250,6 +250,10 @@ fn emit_done(app: &tauri::AppHandle, server_id: &str, file: &str, total: u64) {
     );
 }
 
+// exec não passa por shell de login, então binários do nvm/volta/npm -g ficam fora
+// do PATH e `command -v pm2` falha. Sem isso o Monitor não vê o pm2.
+const EXEC_PATH_PREFIX: &str = r#"for d in "$HOME"/.nvm/versions/node/*/bin "$HOME"/.volta/bin "$HOME"/.npm-global/bin "$HOME"/.local/bin "$HOME"/.config/yarn/global/node_modules/.bin /usr/local/bin /opt/homebrew/bin /usr/local/lib/node_modules/.bin; do [ -d "$d" ] && PATH="$d:$PATH"; done; export PATH; "#;
+
 /// Executa um comando no servidor pela sessão auxiliar (a mesma do SFTP) e
 /// retorna o stdout. Usado pelo Monitor (pm2, stats, detecção de ferramentas).
 #[tauri::command]
@@ -262,7 +266,7 @@ pub async fn ssh_exec(
         let conn = get_conn(&app, &server_id)?;
         let g = conn.lock().unwrap();
         let mut ch = g.0.channel_session().map_err(|e| e.to_string())?;
-        ch.exec(&command).map_err(|e| e.to_string())?;
+        ch.exec(&format!("{EXEC_PATH_PREFIX}{command}")).map_err(|e| e.to_string())?;
         let mut out = String::new();
         ch.read_to_string(&mut out).map_err(|e| e.to_string())?;
         let mut err = String::new();
