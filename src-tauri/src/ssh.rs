@@ -196,19 +196,22 @@ pub fn ssh_write(app: tauri::AppHandle, server_id: String, data: String) -> Resu
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&data)
         .map_err(|e| e.to_string())?;
-    with_term(&app, &server_id, |g| {
-        let mut off = 0;
-        while off < bytes.len() {
-            match g.1.write(&bytes[off..]) {
-                Ok(n) => off += n,
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(2))
-                }
-                Err(e) => return Err(e.to_string()),
+    with_term(&app, &server_id, |g| write_all_nb(&mut g.1, &bytes))?
+}
+
+/// write_all pra canal non-blocking: espera o WouldBlock em vez de falhar.
+fn write_all_nb(ch: &mut ssh2::Channel, bytes: &[u8]) -> Result<(), String> {
+    let mut off = 0;
+    while off < bytes.len() {
+        match ch.write(&bytes[off..]) {
+            Ok(n) => off += n,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(2))
             }
+            Err(e) => return Err(e.to_string()),
         }
-        Ok(())
-    })?
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -219,16 +222,38 @@ pub fn ssh_resize(app: tauri::AppHandle, server_id: String, cols: u32, rows: u32
 }
 
 #[tauri::command]
-pub fn ssh_disconnect(app: tauri::AppHandle, server_id: String) -> Result<(), String> {
-    let terms = app.state::<TermState>();
-    let sess = terms.lock().unwrap().remove(&server_id);
-    if let Some(t) = sess {
-        t.alive.store(false, Ordering::Relaxed);
-        if let Ok(mut g) = t.inner.lock() {
-            g.1.close().ok();
+pub async fn ssh_disconnect(app: tauri::AppHandle, server_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let terms = app.state::<TermState>();
+        let sess = terms.lock().unwrap().remove(&server_id);
+        if let Some(t) = sess {
+            t.alive.store(false, Ordering::Relaxed);
+            if let Ok(mut g) = t.inner.lock() {
+                // encerra o shell de forma limpa (exit + EOF) e dá até 1s pro servidor
+                // fechar o canal, pra não deixar sessão sshd órfã do outro lado
+                let _ = write_all_nb(&mut g.1, b"exit\n");
+                let _ = g.1.send_eof();
+                let deadline = std::time::Instant::now() + Duration::from_secs(1);
+                let mut buf = [0u8; 4096];
+                while !g.1.eof() && std::time::Instant::now() < deadline {
+                    match g.1.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(_) => {}
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(20))
+                        }
+                        Err(_) => break,
+                    }
+                }
+                g.1.close().ok();
+                g.1.wait_close().ok();
+                g.0.disconnect(None, "bye", None).ok();
+            }
         }
-    }
-    // derruba a sessão SFTP associada, se existir
-    crate::sftp::drop_conn(&app, &server_id);
-    Ok(())
+        // derruba a sessão SFTP associada, se existir
+        crate::sftp::drop_conn(&app, &server_id);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

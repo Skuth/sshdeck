@@ -11,7 +11,7 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2-c795f0?style=flat-square&labelColor=1c2028)](https://tauri.app)
 [![Platform](https://img.shields.io/badge/macOS%20%7C%20Windows%20%7C%20Linux-e8c26e?style=flat-square&labelColor=1c2028)](https://github.com/Skuth/sshdeck/releases)
 
-[Instalação](#-instalação) · [Funcionalidades](#-funcionalidades) · [Rodando local](#-rodando-local) · [Release](#-build--release) · [Importação](#-importando-servidores) · [Segurança](#-segurança)
+[Instalação](#-instalação) · [Funcionalidades](#-funcionalidades) · [Monitor](#-modo-monitor) · [Rodando local](#-rodando-local) · [Release](#-build--release) · [Importação](#-importando-servidores) · [Segurança](#-segurança) · [Contribuindo](#-contribuindo)
 
 </div>
 
@@ -25,12 +25,26 @@
 | ⚡ **Conexão em 2 clicks** | Credenciais salvas (senha ou chave privada) — clicou, conectou |
 | 🗂️ **Abas** | Uma aba por conexão; clicar num servidor já conectado só foca a aba, nunca duplica |
 | 🏷️ **Tags com cor** | Categorias coloridas, agrupamento na sidebar e **drag & drop** pra reorganizar e mover entre grupos |
-| 📁 **SFTP** | Navegador de arquivos por sessão — duplo click baixa direto pro seu computador, com barra de progresso |
-| 📥 **Importação CSV/JSON** | Cole o texto ou escolha o arquivo; duplicados são atualizados, nunca duplicados |
-| ▶️ **Snippets** | Comandos salvos que rodam com 1 click na sessão ativa |
+| 📁 **SFTP** | Navegador de arquivos por sessão — duplo click baixa direto pro seu computador, com barra de progresso; pastas inteiras e multi-seleção |
+| 🗃️ **Modo Arquivos (GUI)** | Gerenciador de arquivos em tela cheia com editor embutido (syntax highlight), grid, menu de contexto, renomear, ou abrir em `nano`/`vim` no terminal |
+| 📊 **Modo Monitor** | KPIs do servidor (CPU, memória, disco, uptime), stack instalada, PM2 ao vivo com detalhe por processo, sites nginx, logs Laravel, ações rápidas e kit de ajuda — [detalhes](#-modo-monitor) |
+| 📥 **Importação / exportação** | Importa CSV/JSON (cole ou escolha o arquivo; duplicados são atualizados) e exporta o vault confirmando a senha-mestre |
+| ▶️ **Snippets** | Comandos salvos que rodam com 1 click na sessão ativa (aparecem só com uma sessão conectada) |
 | 🔀 **Port forwarding** | Túneis locais por servidor, liga/desliga no menu do servidor |
 | 🧭 **Conexão explicada** | Overlay mostra cada etapa em tempo real (DNS → TCP → handshake → host key → auth → shell), com retry e cancelamento |
 | 🛡️ **Host key TOFU** | Fingerprint salva no primeiro acesso; se mudar, a conexão é recusada (proteção MITM) |
+| 🔄 **Auto-update** | Checa releases assinadas a cada 5 min (ou no botão), mostra as notas e instala com 1 click; changelog completo dentro do app |
+| 🚪 **Fechamento limpo** | Fechar a aba manda `exit` pro shell remoto antes de derrubar o canal — sem sessão sshd órfã no servidor |
+
+## 📊 Modo Monitor
+
+Com uma sessão conectada, o seletor na barra de abas alterna entre **Terminal**, **Arquivos** e **Monitor**. O Monitor roda comandos de leitura pela sessão auxiliar (a mesma do SFTP) e renderiza tudo formatado, sem você digitar nada:
+
+- **Servidor:** load/CPU, memória, disco e uptime com sparklines, a cada 5s
+- **Stack instalada:** versões de PHP, Composer, Node, npm, PM2, nginx, Docker, git e o SO
+- **PM2:** tabela ao vivo com id, modo (**cluster** com índice da instância, ou fork), badge **worker** pra processos de fila, status, CPU com histórico, memória, restarts e uptime. **Clicar na linha abre o "monit" daquele processo em tempo real** (2s): CPU e memória com gráfico, restarts instáveis, métricas custom do `pm2 monit` (heap, event loop…), script/cwd/node/logs, tail do stdout/stderr e ações restart · reload (cluster) · stop/start · seguir logs no terminal
+- **Ações rápidas** (aparecem conforme o que está instalado): testar/reload da config do nginx, log de erros, **gerenciador de sites** (ativar/desativar, criar com template e editar no editor embutido), logs Laravel parseados por nível, log do PHP-FPM, containers e uso do Docker, serviços com falha, disco por pasta e top processos. Várias são "ao vivo" (auto-refresh)
+- **Kit de ajuda:** receitas prontas (criar usuário, sudo, chave SSH, ufw, certbot…) pra copiar ou rodar no terminal
 
 ## 📦 Instalação
 
@@ -89,9 +103,9 @@ O workflow [`release.yml`](.github/workflows/release.yml) cuida de tudo — voc�
 2. Escolha o bump: `patch`, `minor` ou `major`
 3. A pipeline então:
    - bumpa a versão em `package.json`, `tauri.conf.json`, `Cargo.toml` e `Cargo.lock` ([`scripts/bump.mjs`](scripts/bump.mjs))
-   - gera a seção nova do [`CHANGELOG.md`](CHANGELOG.md) com os commits desde a última release
+   - gera a seção nova do [`CHANGELOG.md`](CHANGELOG.md) a partir dos **changesets** em [`.changeset/`](.changeset/README.md) (fallback: commits desde a última release) e apaga os arquivos consumidos
    - commita, cria a tag `vX.Y.Z` e faz push
-   - builda **macOS (arm64 + Intel), Windows e Linux** e publica a Release com o changelog no corpo
+   - builda **macOS (arm64 + Intel), Windows e Linux**, publica a Release com o changelog no corpo e gera o `latest.json` assinado que o auto-update do app consome
 
 Pela linha de comando: `gh workflow run Release -f bump=minor`
 
@@ -126,6 +140,15 @@ Banco,10.0.0.6,2222,deploy,outra$enha,databases
 - A senha-mestre **não é armazenada** em lugar nenhum; sem ela, o arquivo é inútil
 - **Host key TOFU**: a fingerprint SHA-256 de cada servidor é salva no primeiro connect (`known_hosts.json`) e a conexão é recusada se mudar
 - Senhas nunca saem da sua máquina — a conexão SSH é feita direto pelo app (libssh2)
+
+## 🤝 Contribuindo
+
+As regras estão em [**AGENTS.md**](AGENTS.md) — valem pra pessoas e pra qualquer agente de código. Resumo:
+
+- Todo PR que muda comportamento traz um **changeset** em [`.changeset/`](.changeset/README.md) (uma linha por mudança, em inglês, prefixo `Feat:`/`Fix:`/`Chore:`/`Refact:`)
+- Mudou algo que está neste README (funcionalidade, instalação, importação, release, segurança)? **Atualiza o README no mesmo PR**
+- `CHANGELOG.md` e versão são gerados pela pipeline — não edite à mão
+- Commits em inglês com os mesmos quatro prefixos; comentário no código só onde explica um *porquê*
 
 ## 🛠️ Stack
 

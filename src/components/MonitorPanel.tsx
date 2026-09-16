@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, b64encode, formatBytes } from "@/lib/api";
@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/dialog";
 import FileEditor from "@/components/FileEditor";
 import Truncated from "@/components/Truncated";
-import ConfirmDialog from "@/components/ConfirmDialog";
 import {
   Activity,
   AlertTriangle,
@@ -27,6 +26,7 @@ import {
   CircleDashed,
   CircleX,
   Clock,
+  Layers,
   Copy,
   Cpu,
   FileText,
@@ -34,17 +34,17 @@ import {
   HardDrive,
   LifeBuoy,
   Link2,
-  ListOrdered,
   Loader2,
   MemoryStick,
   PencilLine,
+  Play,
   Plus,
   RefreshCw,
   RotateCw,
   ScrollText,
+  Square,
   SquareTerminal,
   Terminal,
-  Trash2,
   Unlink,
   X,
 } from "lucide-react";
@@ -61,11 +61,27 @@ function uptimeText(seconds: number): string {
 }
 
 /** Sparkline: linha 2px + área suave, dados reais acumulados no cliente. */
-function Sparkline({ data, color, max }: { data: number[]; color: string; max?: number }) {
-  const w = 120;
-  const h = 32;
+function Sparkline({
+  data,
+  color,
+  max,
+  w = 120,
+  h = 32,
+}: {
+  data: number[];
+  color: string;
+  max?: number;
+  w?: number;
+  h?: number;
+}) {
   if (data.length < 2)
-    return <div className="h-8 w-30 rounded bg-muted/30" title="coletando dados…" />;
+    return (
+      <div
+        className="rounded bg-muted/30"
+        style={{ width: w, height: h }}
+        title="coletando dados…"
+      />
+    );
   const top = max ?? Math.max(...data, 0.0001);
   const pts = data.map((v, i) => [
     (i / (data.length - 1)) * w,
@@ -80,7 +96,15 @@ function Sparkline({ data, color, max }: { data: number[]; color: string; max?: 
   );
 }
 
-function CapacityBar({ used, total, warnAt = 0.8 }: { used: number; total: number; warnAt?: number }) {
+function CapacityBar({
+  used,
+  total,
+  warnAt = 0.8,
+}: {
+  used: number;
+  total: number;
+  warnAt?: number;
+}) {
   const ratio = total > 0 ? used / total : 0;
   const color = ratio >= 0.92 ? "#f2778c" : ratio >= warnAt ? "#e8c26e" : "#57d9a3";
   return (
@@ -208,49 +232,35 @@ function parseStats(raw: string): SysStats | null {
   return { load1, nproc, memTotal, memUsed, diskTotal, diskUsed, uptime };
 }
 
+/** Subconjunto do `pm2 jlist` que a dash e o detalhe usam. */
 interface Pm2Proc {
+  pid: number;
   pm_id: number;
   name: string;
   monit: { cpu: number; memory: number };
-  pm2_env: { status: string; restart_time: number; pm_uptime: number };
+  pm2_env: {
+    status: string;
+    restart_time: number;
+    unstable_restarts?: number;
+    pm_uptime: number;
+    exec_mode?: string;
+    instances?: number | string;
+    NODE_APP_INSTANCE?: number;
+    node_version?: string;
+    version?: string;
+    pm_exec_path?: string;
+    pm_cwd?: string;
+    pm_out_log_path?: string;
+    pm_err_log_path?: string;
+    watch?: boolean;
+    created_at?: number;
+    axm_monitor?: Record<string, { value: number | string; unit?: string }>;
+  };
 }
 
 /** Processo PM2 que parece ser worker de fila. */
 const isQueueWorker = (p: Pm2Proc) => /queue|worker|horizon|bull/i.test(p.name);
-
-/* ---------- filas (Laravel: pendentes via Queue::size, falhas via failed_jobs) ---------- */
-
-// ponytail: mede só a fila default de cada app; por-fila nomeada se precisarem
-const QUEUES_CMD = `for a in $(find /var/www /home -maxdepth 4 -name artisan 2>/dev/null | head -3); do d=$(dirname "$a"); echo "==APP=> $d"; cd "$d" && timeout 15 php artisan tinker --execute='echo json_encode(["pending"=>Queue::size(),"failed"=>DB::table("failed_jobs")->count()]);' 2>/dev/null; echo; cd /; done; true`;
-
-interface QueueApp {
-  dir: string;
-  name: string;
-  pending: number;
-  failed: number;
-}
-
-function parseQueues(raw: string): QueueApp[] {
-  const apps: QueueApp[] = [];
-  for (const sec of raw.split(/^==APP=> /m).filter(Boolean)) {
-    const nl = sec.indexOf("\n");
-    const dir = sec.slice(0, nl).trim();
-    const jsonMatch = sec.slice(nl).match(/\{[^}]*\}/);
-    if (!jsonMatch) continue;
-    try {
-      const j = JSON.parse(jsonMatch[0]);
-      apps.push({
-        dir,
-        name: dir.split("/").pop() ?? dir,
-        pending: Number(j.pending) || 0,
-        failed: Number(j.failed) || 0,
-      });
-    } catch {
-      /* app sem tinker/fila configurada — ignora */
-    }
-  }
-  return apps;
-}
+const isCluster = (p: Pm2Proc) => p.pm2_env.exec_mode === "cluster_mode";
 
 const PM2_STATUS: Record<string, { label: string; color: string; Icon: typeof CircleCheck }> = {
   online: { label: "online", color: "#57d9a3", Icon: CircleCheck },
@@ -272,7 +282,12 @@ interface QuickAction {
 }
 
 const ACTIONS: QuickAction[] = [
-  { id: "nginx-test", tool: "nginx", label: "Testar config", cmd: "sudo -n nginx -t 2>&1 || nginx -t 2>&1" },
+  {
+    id: "nginx-test",
+    tool: "nginx",
+    label: "Testar config",
+    cmd: "sudo -n nginx -t 2>&1 || nginx -t 2>&1",
+  },
   {
     id: "nginx-reload",
     tool: "nginx",
@@ -306,7 +321,12 @@ const ACTIONS: QuickAction[] = [
     label: "Log PHP-FPM",
     cmd: "sudo -n sh -c 'tail -n 60 /var/log/php*fpm*.log' 2>/dev/null || tail -n 60 /var/log/php*fpm*.log 2>/dev/null; true",
   },
-  { id: "docker-ps", tool: "docker", label: "Containers", cmd: "docker ps -a --format '{{json .}}'" },
+  {
+    id: "docker-ps",
+    tool: "docker",
+    label: "Containers",
+    cmd: "docker ps -a --format '{{json .}}'",
+  },
   {
     id: "docker-stats",
     tool: "docker",
@@ -314,8 +334,16 @@ const ACTIONS: QuickAction[] = [
     cmd: "docker stats --no-stream --format '{{json .}}'",
     live: 4000,
   },
-  { id: "failed", label: "Serviços com falha", cmd: "systemctl --failed --no-legend --plain 2>&1; true" },
-  { id: "du", label: "Disco por pasta", cmd: "du -sh /var/* /home/* 2>/dev/null | sort -rh | head -12" },
+  {
+    id: "failed",
+    label: "Serviços com falha",
+    cmd: "systemctl --failed --no-legend --plain 2>&1; true",
+  },
+  {
+    id: "du",
+    label: "Disco por pasta",
+    cmd: "du -sh /var/* /home/* 2>/dev/null | sort -rh | head -12",
+  },
   { id: "ps", label: "Top processos", cmd: "ps aux --sort=-%cpu | head -13", live: 3000 },
 ];
 
@@ -396,7 +424,10 @@ function renderResult(action: QuickAction, out: string, ctx: ResultCtx): React.R
         <StateBanner ok text="nginx recarregado com sucesso" />
       ) : (
         <>
-          <StateBanner ok={false} text="Reload falhou — se pedir senha de sudo, rode pelo terminal" />
+          <StateBanner
+            ok={false}
+            text="Reload falhou — se pedir senha de sudo, rode pelo terminal"
+          />
           <Mono text={trimmed} />
         </>
       );
@@ -509,7 +540,9 @@ function renderResult(action: QuickAction, out: string, ctx: ResultCtx): React.R
     }
     case "laravel-log": {
       if (!trimmed)
-        return <p className="text-sm text-muted-foreground p-3">Nenhum log de Laravel encontrado.</p>;
+        return (
+          <p className="text-sm text-muted-foreground p-3">Nenhum log de Laravel encontrado.</p>
+        );
       const sections = trimmed.split(/^==FILE=> /m).filter(Boolean);
       return (
         <div className="max-h-96 overflow-y-auto grid gap-1 p-2">
@@ -529,7 +562,10 @@ function renderResult(action: QuickAction, out: string, ctx: ResultCtx): React.R
                   {entries.map((e, i) => {
                     const color = LOG_LEVEL_COLOR[e.level.toUpperCase()] ?? "#8a93a8";
                     return (
-                      <div key={i} className="rounded-lg border border-border/60 bg-background/40 px-2.5 py-2">
+                      <div
+                        key={i}
+                        className="rounded-lg border border-border/60 bg-background/40 px-2.5 py-2"
+                      >
                         <div className="flex items-center gap-2 flex-wrap">
                           <span
                             className="text-[10px] font-semibold uppercase rounded px-1.5 py-px"
@@ -630,7 +666,9 @@ function NginxSites({ raw, ctx }: { raw: string; ctx: ResultCtx }) {
       } else {
         await api.sshExec(
           ctx.serverId,
-          sudoOr(`ln -sf '/etc/nginx/sites-available/${row.name}' '/etc/nginx/sites-enabled/${row.name}'`),
+          sudoOr(
+            `ln -sf '/etc/nginx/sites-available/${row.name}' '/etc/nginx/sites-enabled/${row.name}'`,
+          ),
         );
         toast.success(`"${row.name}" ativado — teste a config e dê reload`);
       }
@@ -648,7 +686,12 @@ function NginxSites({ raw, ctx }: { raw: string; ctx: ResultCtx }) {
     setBusy(true);
     try {
       const path = `/etc/nginx/sites-available/${name}`;
-      const content = tpl === "proxy" ? NGINX_TPL.proxy(name, port) : tpl === "static" ? NGINX_TPL.static(name) : "";
+      const content =
+        tpl === "proxy"
+          ? NGINX_TPL.proxy(name, port)
+          : tpl === "static"
+            ? NGINX_TPL.static(name)
+            : "";
       const b64 = b64encode(content);
       await api.sshExec(
         ctx.serverId,
@@ -689,7 +732,9 @@ function NginxSites({ raw, ctx }: { raw: string; ctx: ResultCtx }) {
           >
             <span
               className="inline-flex items-center gap-1.5 text-[11px] w-16 shrink-0"
-              style={{ color: r.state === "on" ? "#57d9a3" : r.state === "conf" ? "#6ea8f7" : "#8a93a8" }}
+              style={{
+                color: r.state === "on" ? "#57d9a3" : r.state === "conf" ? "#6ea8f7" : "#8a93a8",
+              }}
             >
               {r.state === "on" ? (
                 <CircleCheck className="size-3" />
@@ -856,7 +901,10 @@ const RECIPES: Recipe[] = [
     title: "SSL grátis com certbot (Let's Encrypt)",
     desc: "Gera e instala o certificado direto na config do nginx, com renovação automática.",
     steps: [
-      { text: "Instala o certbot (Ubuntu):", cmd: "sudo apt install -y certbot python3-certbot-nginx" },
+      {
+        text: "Instala o certbot (Ubuntu):",
+        cmd: "sudo apt install -y certbot python3-certbot-nginx",
+      },
       { text: "Emite e configura o certificado:", cmd: "sudo certbot --nginx -d meusite.com.br" },
       { text: "Testa a renovação automática:", cmd: "sudo certbot renew --dry-run" },
     ],
@@ -897,9 +945,7 @@ function HelpKit({ runInTerminal }: { runInTerminal: (cmd: string) => void }) {
               <div key={s.cmd} className="grid gap-1">
                 <p className="text-xs text-muted-foreground">{s.text}</p>
                 <div className="flex items-center gap-1.5 rounded-lg bg-[#0b0e14] border border-border/60 pl-3 pr-1.5 py-1.5">
-                  <code className="text-xs font-mono flex-1 break-all text-[#57d9a3]">
-                    {s.cmd}
-                  </code>
+                  <code className="text-xs font-mono flex-1 break-all text-[#57d9a3]">{s.cmd}</code>
                   <button
                     className="text-muted-foreground hover:text-foreground p-1 shrink-0"
                     title="Copiar"
@@ -924,6 +970,272 @@ function HelpKit({ runInTerminal }: { runInTerminal: (cmd: string) => void }) {
   );
 }
 
+/* ---------- detalhe de um processo PM2 (pm2 monit só dele, ao vivo) ---------- */
+
+function Pm2Mode({ p }: { p: Pm2Proc }) {
+  return isCluster(p) ? (
+    <span
+      className="inline-flex items-center gap-1 text-[11px] text-[#c795f0]"
+      title="exec_mode: cluster"
+    >
+      <Layers className="size-3" /> cluster
+      {p.pm2_env.NODE_APP_INSTANCE !== undefined && (
+        <span className="text-muted-foreground">#{p.pm2_env.NODE_APP_INSTANCE}</span>
+      )}
+    </span>
+  ) : (
+    <span className="text-[11px] text-muted-foreground" title="exec_mode: fork">
+      fork
+    </span>
+  );
+}
+
+function Pm2Detail({
+  proc,
+  history,
+  serverId,
+  onClose,
+  onAction,
+  runInTerminal,
+}: {
+  proc: Pm2Proc | null;
+  history: Record<string, number[]>;
+  serverId: string;
+  onClose: () => void;
+  onAction: (p: Pm2Proc, verb: "restart" | "reload" | "stop" | "start") => void;
+  runInTerminal: (cmd: string) => void;
+}) {
+  const env = proc?.pm2_env;
+  const logCmd =
+    env &&
+    `tail -n 30 '${env.pm_err_log_path ?? ""}' 2>/dev/null | sed 's/^/E|/'; tail -n 60 '${env.pm_out_log_path ?? ""}' 2>/dev/null | sed 's/^/O|/'; true`;
+  const { data: logs } = useQuery({
+    queryKey: ["pm2log", serverId, proc?.pm_id, logCmd],
+    enabled: !!logCmd,
+    refetchInterval: 2000,
+    queryFn: () => api.sshExec(serverId, logCmd!),
+  });
+  const logRef = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [logs]);
+
+  if (!proc || !env) return null;
+  const st = PM2_STATUS[env.status] ?? { label: env.status, color: "#e8c26e", Icon: AlertTriangle };
+  const online = env.status === "online";
+  const metrics = Object.entries(env.axm_monitor ?? {}).filter(
+    ([, m]) => m && m.value !== "" && m.value !== null && m.value !== undefined,
+  );
+  const info: [string, string | undefined][] = [
+    ["script", env.pm_exec_path],
+    ["cwd", env.pm_cwd],
+    ["node", env.node_version],
+    ["versão", env.version],
+    ["instâncias", env.instances !== undefined ? String(env.instances) : undefined],
+    ["watch", env.watch ? "sim" : "não"],
+    ["criado em", env.created_at ? new Date(env.created_at).toLocaleString("pt-BR") : undefined],
+    ["log out", env.pm_out_log_path],
+    ["log err", env.pm_err_log_path],
+  ];
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            <RotateCw className="size-4 text-primary" />
+            {proc.name}
+            <span
+              className="inline-flex items-center gap-1.5 text-xs font-normal"
+              style={{ color: st.color }}
+            >
+              <st.Icon className="size-3.5" /> {st.label}
+            </span>
+            <Pm2Mode p={proc} />
+            {isQueueWorker(proc) && (
+              <span className="text-[10px] font-medium uppercase rounded px-1.5 py-px bg-[#5fd0d8]/15 text-[#5fd0d8]">
+                worker
+              </span>
+            )}
+            <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-[#57d9a3] font-normal">
+              <span className="size-1.5 rounded-full bg-[#57d9a3] animate-pulse" /> ao vivo · 2s
+            </span>
+          </DialogTitle>
+          <DialogDescription className="font-mono text-[11px]">
+            pm_id {proc.pm_id} · pid {proc.pid || "—"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          <div className="rounded-xl border border-border bg-card/60 p-3 grid gap-1.5 col-span-2 lg:col-span-1">
+            <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <Cpu className="size-3.5" /> CPU
+            </span>
+            <span
+              className="text-2xl font-semibold tabular-nums leading-none"
+              style={{ color: pctColor(proc.monit.cpu) }}
+            >
+              {proc.monit.cpu}%
+            </span>
+            <Sparkline
+              data={history[`pm2:${proc.pm_id}`] ?? []}
+              color="#6ea8f7"
+              max={100}
+              w={200}
+              h={40}
+            />
+          </div>
+          <div className="rounded-xl border border-border bg-card/60 p-3 grid gap-1.5 col-span-2 lg:col-span-1">
+            <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <MemoryStick className="size-3.5" /> Memória
+            </span>
+            <span className="text-2xl font-semibold tabular-nums leading-none">
+              {formatBytes(proc.monit.memory)}
+            </span>
+            <Sparkline
+              data={history[`pm2mem:${proc.pm_id}`] ?? []}
+              color="#c795f0"
+              w={200}
+              h={40}
+            />
+          </div>
+          <div className="rounded-xl border border-border bg-card/60 p-3 grid gap-1.5">
+            <span className="text-[11px] text-muted-foreground">Restarts</span>
+            <span
+              className={cn(
+                "text-2xl font-semibold tabular-nums leading-none",
+                (env.unstable_restarts ?? 0) > 0 && "text-[#f2778c]",
+              )}
+            >
+              {env.restart_time}
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {env.unstable_restarts ?? 0} instáveis
+            </span>
+          </div>
+          <div className="rounded-xl border border-border bg-card/60 p-3 grid gap-1.5">
+            <span className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <Clock className="size-3.5" /> Uptime
+            </span>
+            <span className="text-2xl font-semibold tabular-nums leading-none">
+              {online ? uptimeText((Date.now() - env.pm_uptime) / 1000) : "—"}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => onAction(proc, "restart")}
+          >
+            <RotateCw className="size-3.5" /> Restart
+          </Button>
+          {isCluster(proc) && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 text-xs"
+              title="pm2 reload — zero downtime, só em cluster"
+              onClick={() => onAction(proc, "reload")}
+            >
+              <Layers className="size-3.5" /> Reload
+            </Button>
+          )}
+          {online ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => onAction(proc, "stop")}
+            >
+              <Square className="size-3.5" /> Stop
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => onAction(proc, "start")}
+            >
+              <Play className="size-3.5" /> Start
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs ml-auto"
+            onClick={() => runInTerminal(`pm2 logs ${proc.pm_id} --lines 100`)}
+          >
+            <SquareTerminal className="size-3.5" /> Seguir logs no terminal
+          </Button>
+        </div>
+
+        {metrics.length > 0 && (
+          <div>
+            <p className="text-[11px] text-muted-foreground mb-1.5">
+              Métricas do processo (pm2 monit)
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5">
+              {metrics.map(([name, m]) => (
+                <div
+                  key={name}
+                  className="rounded-lg border border-border/60 bg-background/40 px-2.5 py-1.5"
+                >
+                  <p className="text-[10px] text-muted-foreground truncate" title={name}>
+                    {name}
+                  </p>
+                  <p className="text-sm font-medium tabular-nums">
+                    {typeof m.value === "number" ? Number(m.value.toFixed(2)) : m.value}
+                    {m.unit && (
+                      <span className="text-[10px] text-muted-foreground ml-1">{m.unit}</span>
+                    )}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="grid sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
+          {info
+            .filter(([, v]) => v)
+            .map(([k, v]) => (
+              <div key={k} className="flex gap-2 min-w-0">
+                <span className="text-muted-foreground w-20 shrink-0">{k}</span>
+                <Truncated text={v!} tooltip={v!} mono className="font-mono min-w-0 flex-1" />
+              </div>
+            ))}
+        </div>
+
+        <div>
+          <p className="text-[11px] text-muted-foreground mb-1.5">Logs (stderr em vermelho)</p>
+          <pre
+            ref={logRef}
+            className="rounded-lg bg-[#0b0e14] border border-border/60 text-[11px] font-mono leading-relaxed whitespace-pre-wrap break-all p-3 h-56 overflow-y-auto"
+          >
+            {logs === undefined
+              ? "carregando…"
+              : logs.trim()
+                ? logs
+                    .trim()
+                    .split("\n")
+                    .map((l, i) => (
+                      <span key={i} className={l.startsWith("E|") ? "text-[#f2778c]" : undefined}>
+                        {l.slice(2)}
+                        {"\n"}
+                      </span>
+                    ))
+                : "(logs vazios)"}
+          </pre>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ---------- painel ---------- */
 
 export default function MonitorPanel({ serverId }: { serverId: string }) {
@@ -931,6 +1243,7 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
   const history = useRef<Record<string, number[]>>({});
   const [action, setAction] = useState<QuickAction | null>(null);
   const [editPath, setEditPath] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<number | null>(null);
 
   const push = (key: string, value: number) => {
     const arr = (history.current[key] ??= []);
@@ -940,7 +1253,8 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
 
   const { data: tools } = useQuery({
     queryKey: ["tools", serverId],
-    queryFn: async () => (await api.sshExec(serverId, DETECT_CMD)).trim().split("\n").filter(Boolean),
+    queryFn: async () =>
+      (await api.sshExec(serverId, DETECT_CMD)).trim().split("\n").filter(Boolean),
     staleTime: Infinity,
   });
 
@@ -967,35 +1281,27 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
   const { data: pm2, isLoading: pm2Loading } = useQuery({
     queryKey: ["pm2", serverId],
     enabled: !!hasPm2,
-    refetchInterval: 4000,
+    // com o detalhe aberto vira "monit": 2s
+    refetchInterval: detailId !== null ? 2000 : 4000,
     queryFn: async () => {
       const raw = await api.sshExec(serverId, "pm2 jlist 2>/dev/null");
       const list: Pm2Proc[] = JSON.parse(raw.slice(raw.indexOf("[")));
-      for (const p of list) push(`pm2:${p.pm_id}`, p.monit.cpu);
+      for (const p of list) {
+        push(`pm2:${p.pm_id}`, p.monit.cpu);
+        push(`pm2mem:${p.pm_id}`, p.monit.memory);
+      }
       return list;
     },
   });
 
-  const hasLaravel = tools?.includes("laravel");
   const workers = (pm2 ?? []).filter(isQueueWorker);
-  const { data: queues, isFetching: queuesLoading } = useQuery({
-    queryKey: ["queues", serverId],
-    enabled: !!hasLaravel,
-    refetchInterval: 10000,
-    queryFn: async () => {
-      const apps = parseQueues(await api.sshExec(serverId, QUEUES_CMD));
-      for (const a of apps) push(`q:${a.dir}`, a.pending);
-      return apps;
-    },
-  });
+  const clustered = (pm2 ?? []).filter(isCluster);
 
-  const [confirmFlush, setConfirmFlush] = useState<QueueApp | null>(null);
-
-  const queueAction = async (app: QueueApp, cmd: string, okMsg: string) => {
+  const pm2Action = async (p: Pm2Proc, verb: "restart" | "reload" | "stop" | "start") => {
     try {
-      await api.sshExec(serverId, `cd '${app.dir}' && timeout 30 php artisan ${cmd} 2>&1`);
-      toast.success(okMsg);
-      queryClient.invalidateQueries({ queryKey: ["queues", serverId] });
+      await api.sshExec(serverId, `pm2 ${verb} ${p.pm_id}`);
+      toast.success(`"${p.name}": ${verb} ok`);
+      queryClient.invalidateQueries({ queryKey: ["pm2", serverId] });
     } catch (e) {
       toast.error(String(e));
     }
@@ -1003,11 +1309,7 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
 
   const restartWorkers = async () => {
     try {
-      // avisa os workers pra reiniciarem após o job atual + restart nos processos pm2
-      for (const app of queues ?? [])
-        await api.sshExec(serverId, `cd '${app.dir}' && php artisan queue:restart 2>/dev/null; true`);
-      if (workers.length)
-        await api.sshExec(serverId, `pm2 restart ${workers.map((w) => w.pm_id).join(" ")}`);
+      await api.sshExec(serverId, `pm2 restart ${workers.map((w) => w.pm_id).join(" ")}`);
       toast.success("Workers reiniciados");
       queryClient.invalidateQueries({ queryKey: ["pm2", serverId] });
     } catch (e) {
@@ -1031,16 +1333,6 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
   const runInTerminal = (command: string) => {
     api.sshWrite(serverId, b64encode(command + "\n")).catch((e) => toast.error(String(e)));
     useTabs.getState().setView(serverId, "terminal");
-  };
-
-  const pm2Restart = async (p: Pm2Proc) => {
-    try {
-      await api.sshExec(serverId, `pm2 restart ${p.pm_id}`);
-      toast.success(`"${p.name}" reiniciado`);
-      queryClient.invalidateQueries({ queryKey: ["pm2", serverId] });
-    } catch (e) {
-      toast.error(String(e));
-    }
   };
 
   const online = pm2?.filter((p) => p.pm2_env.status === "online").length ?? 0;
@@ -1067,10 +1359,19 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
                 <span className="text-2xl font-semibold tabular-nums leading-none">
                   {stats ? stats.load1.toFixed(2) : "—"}
                 </span>
-                <Sparkline data={history.current["load"] ?? []} color="#6ea8f7" max={stats?.nproc} />
+                <Sparkline
+                  data={history.current["load"] ?? []}
+                  color="#6ea8f7"
+                  max={stats?.nproc}
+                />
               </div>
               {cpuPct !== null && (
-                <span className={cn("text-[11px]", cpuPct > 85 ? "text-[#f2778c]" : "text-muted-foreground")}>
+                <span
+                  className={cn(
+                    "text-[11px]",
+                    cpuPct > 85 ? "text-[#f2778c]" : "text-muted-foreground",
+                  )}
+                >
                   {cpuPct.toFixed(0)}% da capacidade
                 </span>
               )}
@@ -1084,7 +1385,11 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
                 <span className="text-2xl font-semibold tabular-nums leading-none">
                   {stats ? formatBytes(stats.memUsed) : "—"}
                 </span>
-                <Sparkline data={history.current["mem"] ?? []} color="#c795f0" max={stats?.memTotal} />
+                <Sparkline
+                  data={history.current["mem"] ?? []}
+                  color="#c795f0"
+                  max={stats?.memTotal}
+                />
               </div>
               {stats && (
                 <>
@@ -1159,19 +1464,37 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
         {/* PM2 */}
         {hasPm2 && (
           <section>
-            <div className="flex items-baseline justify-between mb-2.5">
+            <div className="flex items-baseline justify-between mb-2.5 gap-3 flex-wrap">
               <h2 className="text-sm font-semibold flex items-center gap-2">
                 <RotateCw className="size-4 text-primary" /> PM2
                 <span className="text-[11px] font-normal text-muted-foreground">
                   {online}/{pm2?.length ?? 0} online
+                  {workers.length > 0 &&
+                    ` · ${workers.filter((w) => w.pm2_env.status === "online").length}/${workers.length} worker(s)`}
+                  {clustered.length > 0 && ` · ${clustered.length} em cluster`}
                 </span>
               </h2>
-              <button
-                className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
-                onClick={() => runInTerminal("pm2 monit")}
-              >
-                abrir pm2 monit no terminal
-              </button>
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] text-muted-foreground">
+                  click na linha abre o monit do processo
+                </span>
+                {workers.length > 0 && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-6 text-[11px]"
+                    onClick={restartWorkers}
+                  >
+                    <RotateCw className="size-3" /> Reiniciar workers
+                  </Button>
+                )}
+                <button
+                  className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                  onClick={() => runInTerminal("pm2 monit")}
+                >
+                  pm2 monit no terminal
+                </button>
+              </div>
             </div>
 
             {pm2Loading && (
@@ -1184,7 +1507,9 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-card/60 text-[11px] text-muted-foreground text-left">
+                    <th className="font-medium px-3 py-2 w-10">id</th>
                     <th className="font-medium px-3 py-2">Processo</th>
+                    <th className="font-medium px-3 py-2">Modo</th>
                     <th className="font-medium px-3 py-2">Status</th>
                     <th className="font-medium px-3 py-2 text-right">CPU</th>
                     <th className="font-medium px-3 py-2 w-32">Histórico</th>
@@ -1206,8 +1531,26 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
                         ? uptimeText((Date.now() - p.pm2_env.pm_uptime) / 1000)
                         : "—";
                     return (
-                      <tr key={p.pm_id} className="border-t border-border hover:bg-accent/30">
-                        <td className="px-3 py-2 font-medium">{p.name}</td>
+                      <tr
+                        key={p.pm_id}
+                        className="border-t border-border hover:bg-accent/30 cursor-pointer"
+                        onClick={() => setDetailId(p.pm_id)}
+                        title="Abrir monit deste processo"
+                      >
+                        <td className="px-3 py-2 tabular-nums text-muted-foreground">{p.pm_id}</td>
+                        <td className="px-3 py-2 font-medium">
+                          <span className="inline-flex items-center gap-1.5">
+                            {p.name}
+                            {isQueueWorker(p) && (
+                              <span className="text-[10px] font-medium uppercase rounded px-1.5 py-px bg-[#5fd0d8]/15 text-[#5fd0d8]">
+                                worker
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Pm2Mode p={p} />
+                        </td>
                         <td className="px-3 py-2">
                           <span
                             className="inline-flex items-center gap-1.5 text-xs"
@@ -1232,11 +1575,14 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{up}</td>
                         <td className="px-2 py-2">
-                          <div className="flex gap-1 justify-end">
+                          <div
+                            className="flex gap-1 justify-end"
+                            onClick={(e) => e.stopPropagation()}
+                          >
                             <button
                               className="text-muted-foreground hover:text-primary p-1"
                               title={`pm2 restart ${p.name}`}
-                              onClick={() => pm2Restart(p)}
+                              onClick={() => pm2Action(p, "restart")}
                             >
                               <RotateCw className="size-4" />
                             </button>
@@ -1254,7 +1600,10 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
                   })}
                   {pm2 && pm2.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                      <td
+                        colSpan={10}
+                        className="px-3 py-6 text-center text-sm text-muted-foreground"
+                      >
                         pm2 instalado, mas nenhum processo gerenciado.
                       </td>
                     </tr>
@@ -1262,134 +1611,14 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
                 </tbody>
               </table>
             </div>
-          </section>
-        )}
 
-        {/* Filas */}
-        {(hasLaravel || workers.length > 0) && (
-          <section>
-            <div className="flex items-baseline justify-between mb-2.5">
-              <h2 className="text-sm font-semibold flex items-center gap-2">
-                <ListOrdered className="size-4 text-primary" /> Filas
-                {workers.length > 0 && (
-                  <span className="text-[11px] font-normal text-muted-foreground">
-                    {workers.filter((w) => w.pm2_env.status === "online").length}/{workers.length}{" "}
-                    worker(s) online
-                  </span>
-                )}
-              </h2>
-              <div className="flex items-center gap-3">
-                <span className="text-[11px] text-muted-foreground">atualiza a cada 10s</span>
-                {(workers.length > 0 || (queues?.length ?? 0) > 0) && (
-                  <Button variant="secondary" size="sm" className="h-6 text-[11px]" onClick={restartWorkers}>
-                    <RotateCw className="size-3" /> Reiniciar workers
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {workers.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2.5">
-                {workers.map((w) => {
-                  const st = PM2_STATUS[w.pm2_env.status] ?? PM2_STATUS.stopped;
-                  return (
-                    <span
-                      key={w.pm_id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/60 px-2.5 py-1 text-xs font-mono"
-                      title={`pm2 id ${w.pm_id} — ${st.label}, ${w.pm2_env.restart_time} restarts`}
-                    >
-                      <span className="size-1.5 rounded-full" style={{ backgroundColor: st.color }} />
-                      {w.name}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-
-            {queuesLoading && !queues && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground p-3">
-                <Loader2 className="size-4 animate-spin" /> Medindo filas dos apps Laravel…
-              </div>
-            )}
-
-            <div className="grid sm:grid-cols-2 gap-2.5">
-              {queues?.map((q) => (
-                <div key={q.dir} className="rounded-xl border border-border bg-card/60 p-3.5 grid gap-2.5">
-                  <Truncated
-                    text={q.name}
-                    tooltip={q.dir}
-                    mono
-                    className="text-xs font-semibold"
-                  />
-                  <div className="flex items-end justify-between gap-3">
-                    <div className="grid gap-0.5">
-                      <span className="text-[11px] text-muted-foreground">jobs na fila</span>
-                      <span
-                        className={cn(
-                          "text-2xl font-semibold tabular-nums leading-none",
-                          q.pending > 500 && "text-[#e8c26e]",
-                        )}
-                      >
-                        {q.pending.toLocaleString("pt-BR")}
-                      </span>
-                    </div>
-                    <Sparkline data={history.current[`q:${q.dir}`] ?? []} color="#5fd0d8" />
-                    <div className="grid gap-0.5 text-right">
-                      <span className="text-[11px] text-muted-foreground">falhas</span>
-                      <span
-                        className={cn(
-                          "text-2xl font-semibold tabular-nums leading-none",
-                          q.failed > 0 ? "text-[#f2778c]" : "text-muted-foreground",
-                        )}
-                      >
-                        {q.failed.toLocaleString("pt-BR")}
-                      </span>
-                    </div>
-                  </div>
-                  {q.failed > 0 && (
-                    <div className="flex gap-1.5">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-6 text-[11px] flex-1"
-                        title="php artisan queue:retry all"
-                        onClick={() =>
-                          queueAction(q, "queue:retry all", `Falhas de "${q.name}" reenfileiradas`)
-                        }
-                      >
-                        <RotateCw className="size-3" /> Reprocessar falhas
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 text-[11px] text-destructive hover:text-destructive"
-                        title="php artisan queue:flush"
-                        onClick={() => setConfirmFlush(q)}
-                      >
-                        <Trash2 className="size-3" /> Limpar
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {queues && queues.length === 0 && (
-                <p className="text-sm text-muted-foreground p-2 sm:col-span-2">
-                  Nenhum app Laravel com fila mensurável encontrado (precisa do tinker disponível).
-                </p>
-              )}
-            </div>
-
-            <ConfirmDialog
-              open={confirmFlush !== null}
-              onOpenChange={(o) => !o && setConfirmFlush(null)}
-              title="Apagar todas as falhas?"
-              description={`As ${confirmFlush?.failed} falha(s) de "${confirmFlush?.name}" serão apagadas PERMANENTEMENTE (queue:flush). Sem desfazer.`}
-              confirmLabel="Apagar falhas"
-              onConfirm={() => {
-                const q = confirmFlush!;
-                setConfirmFlush(null);
-                queueAction(q, "queue:flush", `Falhas de "${q.name}" apagadas`);
-              }}
+            <Pm2Detail
+              proc={pm2?.find((p) => p.pm_id === detailId) ?? null}
+              history={history.current}
+              serverId={serverId}
+              onClose={() => setDetailId(null)}
+              onAction={pm2Action}
+              runInTerminal={runInTerminal}
             />
           </section>
         )}
@@ -1400,7 +1629,9 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
             <h2 className="text-sm font-semibold flex items-center gap-2">
               <Boxes className="size-4 text-primary" /> Ações rápidas
             </h2>
-            <span className="text-[11px] text-muted-foreground">resultado aqui mesmo, formatado</span>
+            <span className="text-[11px] text-muted-foreground">
+              resultado aqui mesmo, formatado
+            </span>
           </div>
           <div className="flex flex-wrap gap-2">
             {actions.map((a) => (
@@ -1448,11 +1679,7 @@ export default function MonitorPanel({ serverId }: { serverId: string }) {
                 </button>
                 <button
                   className="text-muted-foreground hover:text-foreground p-1"
-                  title={
-                    action.followCmd
-                      ? "Seguir ao vivo no terminal"
-                      : "Rodar no terminal"
-                  }
+                  title={action.followCmd ? "Seguir ao vivo no terminal" : "Rodar no terminal"}
                   onClick={() => runInTerminal(action.followCmd ?? action.cmd)}
                 >
                   <SquareTerminal className="size-3.5" />

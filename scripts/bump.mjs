@@ -1,6 +1,7 @@
 // Bump de versão + changelog. Uso: node scripts/bump.mjs <patch|minor|major>
 // Atualiza package.json, tauri.conf.json, Cargo.toml e Cargo.lock; gera a seção
-// nova do CHANGELOG.md a partir dos commits desde a última tag e grava as notas
+// nova do CHANGELOG.md a partir dos changesets em .changeset/*.md (apagando-os)
+// — ou dos commits desde a última tag, se não houver nenhum — e grava as notas
 // da release em .release-notes.md. Imprime a versão nova no stdout.
 import fs from "node:fs";
 import { execSync } from "node:child_process";
@@ -33,7 +34,21 @@ const lock = fs
   .replace(/(name = "sshdeck"\nversion = )"[^"]*"/, `$1"${version}"`);
 fs.writeFileSync("src-tauri/Cargo.lock", lock);
 
-// commits desde a última tag (ou todos, se for a primeira release)
+// changesets: cada .changeset/*.md (menos o README) vira linhas do changelog e é apagado
+const changesetFiles = fs
+  .readdirSync(".changeset")
+  .filter((f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md")
+  .map((f) => `.changeset/${f}`);
+const changesets = changesetFiles.flatMap((f) =>
+  fs
+    .readFileSync(f, "utf8")
+    .split("\n")
+    .map((l) => l.replace(/^[-*]\s+/, "").trim())
+    .filter((l) => l && !l.startsWith("#")),
+);
+changesetFiles.forEach((f) => fs.unlinkSync(f));
+
+// fallback: commits desde a última tag (ou todos, se for a primeira release)
 let range = "";
 try {
   const last = execSync("git describe --tags --abbrev=0", { stdio: ["ignore", "pipe", "ignore"] })
@@ -47,8 +62,9 @@ const commits = execSync(`git log ${range} --pretty=%s`)
   .split("\n")
   .filter((l) => l && !l.startsWith("Chore: release"));
 
+const entries = changesets.length ? changesets : commits;
 const date = new Date().toISOString().slice(0, 10);
-const section = `## v${version} — ${date}\n\n${commits.map((c) => `- ${c}`).join("\n")}\n`;
+const section = `## v${version} — ${date}\n\n${entries.map((c) => `- ${c}`).join("\n")}\n`;
 
 const old = fs.existsSync("CHANGELOG.md")
   ? fs.readFileSync("CHANGELOG.md", "utf8").replace(/^# Changelog\n+/, "")

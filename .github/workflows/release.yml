@@ -1,6 +1,6 @@
 # Release manual com versionamento automático:
-# 1. job "version" roda scripts/bump.mjs (patch/minor/major), atualiza CHANGELOG.md,
-#    commita, tagueia e faz push.
+# 1. job "version" roda scripts/bump.mjs (patch/minor/major), gera a seção do
+#    CHANGELOG.md a partir dos changesets (.changeset/*.md), commita, tagueia e faz push.
 # 2. job "build" compila macOS (arm64 + Intel), Windows e Linux na tag nova e
 #    publica os instaladores numa Release com o changelog como corpo.
 name: Release
@@ -43,7 +43,7 @@ jobs:
           VERSION=$(node scripts/bump.mjs ${{ inputs.bump }})
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md .changeset
           git commit -m "Chore: release v$VERSION"
           git tag "v$VERSION"
           git push origin HEAD:main --tags

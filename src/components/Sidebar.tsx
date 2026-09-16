@@ -162,8 +162,11 @@ export default function Sidebar({ onLock }: { onLock: () => void }) {
     }
   };
 
+  const activeTab = tabs.find((t) => t.serverId === activeId && t.status === "connected");
+  const connected = !!activeTab;
+
   const runSnippet = (sn: Snippet) => {
-    const tab = tabs.find((t) => t.serverId === activeId && t.status === "connected");
+    const tab = activeTab;
     if (!tab) {
       toast.error("Nenhuma sessão ativa para executar o snippet");
       return;
@@ -198,16 +201,36 @@ export default function Sidebar({ onLock }: { onLock: () => void }) {
         <TerminalSquare className="size-5 text-primary" />
         <span className="font-semibold tracking-tight">SSHDeck</span>
         <div className="ml-auto flex gap-0.5">
-          <Button variant="ghost" size="icon-sm" title="Novo servidor" onClick={() => setEditServer("new")}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="Novo servidor"
+            onClick={() => setEditServer("new")}
+          >
             <Plus className="size-4" />
           </Button>
-          <Button variant="ghost" size="icon-sm" title="Gerenciar tags" onClick={() => setTagsOpen(true)}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="Gerenciar tags"
+            onClick={() => setTagsOpen(true)}
+          >
             <TagIcon className="size-4" />
           </Button>
-          <Button variant="ghost" size="icon-sm" title="Importar servidores" onClick={() => setImportOpen(true)}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="Importar servidores"
+            onClick={() => setImportOpen(true)}
+          >
             <Import className="size-4" />
           </Button>
-          <Button variant="ghost" size="icon-sm" title="Exportar servidores" onClick={() => setExportOpen(true)}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title="Exportar servidores"
+            onClick={() => setExportOpen(true)}
+          >
             <FileDown className="size-4" />
           </Button>
           <Button variant="ghost" size="icon-sm" title="Travar vault" onClick={onLock}>
@@ -449,42 +472,51 @@ export default function Sidebar({ onLock }: { onLock: () => void }) {
         })}
       </div>
 
-      <Separator />
-      <div className="p-2 max-h-56 overflow-y-auto">
-        <div className="flex items-center justify-between px-1 mb-1">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Snippets
-          </span>
-          <Button variant="ghost" size="icon-sm" title="Novo snippet" onClick={() => setEditSnippet("new")}>
-            <Plus className="size-3.5" />
-          </Button>
-        </div>
-        {snippets.map((sn) => (
-          <div
-            key={sn.id}
-            className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/60 cursor-pointer"
-            onClick={() => runSnippet(sn)}
-            title={sn.command}
-          >
-            <Play className="size-3.5 text-primary shrink-0" />
-            <span className="text-sm truncate flex-1">{sn.name}</span>
-            <button
-              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditSnippet(sn);
-              }}
-            >
-              <Pencil className="size-3.5" />
-            </button>
+      {connected && (
+        <>
+          <Separator />
+          <div className="p-2 max-h-56 overflow-y-auto">
+            <div className="flex items-center justify-between px-1 mb-1">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Snippets
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="Novo snippet"
+                onClick={() => setEditSnippet("new")}
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            </div>
+            {snippets.map((sn) => (
+              <div
+                key={sn.id}
+                className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/60 cursor-pointer"
+                onClick={() => runSnippet(sn)}
+                title={sn.command}
+              >
+                <Play className="size-3.5 text-primary shrink-0" />
+                <span className="text-sm truncate flex-1">{sn.name}</span>
+                <button
+                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditSnippet(sn);
+                  }}
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              </div>
+            ))}
+            {snippets.length === 0 && (
+              <p className="text-xs text-muted-foreground px-1">
+                Comandos salvos pra rodar com 1 click na sessão ativa.
+              </p>
+            )}
           </div>
-        ))}
-        {snippets.length === 0 && (
-          <p className="text-xs text-muted-foreground px-1">
-            Comandos salvos pra rodar com 1 click na sessão ativa.
-          </p>
-        )}
-      </div>
+        </>
+      )}
 
       <UpdateButton />
 

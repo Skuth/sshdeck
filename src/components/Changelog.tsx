@@ -36,7 +36,7 @@ export default function Changelog({ md }: { md: string }) {
     if (line.startsWith("## "))
       out.push(
         <h3 key={i} className="font-semibold text-base mt-3 first:mt-0 text-primary">
-          {line.slice(3)}
+          {line.slice(3).replace(/(\d{4})-(\d{2})-(\d{2})/, "$3/$2/$1")}
         </h3>,
       );
     else if (line.trim() === "---") out.push(<hr key={i} className="border-border my-2" />);
@@ -52,9 +52,7 @@ export default function Changelog({ md }: { md: string }) {
         <p
           key={i}
           className={
-            quoted
-              ? "text-xs text-muted-foreground border-l-2 border-primary/40 pl-2.5"
-              : "text-sm"
+            quoted ? "text-xs text-muted-foreground border-l-2 border-primary/40 pl-2.5" : "text-sm"
           }
         >
           {inline(line)}
