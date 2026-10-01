@@ -3,8 +3,10 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { api, b64decode, b64encode } from "@/lib/api";
-import { useTabs } from "@/lib/store";
+import { EDIT_PREFIX, HOOK_READY, SHELL_HOOK } from "@/lib/shellHook";
+import { termCwd, useTabs } from "@/lib/store";
 import ConnectingOverlay from "@/components/ConnectingOverlay";
+import FileEditor from "@/components/FileEditor";
 
 const THEME = {
   background: "#0b0e14",
@@ -38,6 +40,7 @@ export default function TerminalView({ serverId, active }: { serverId: string; a
   const [stage, setStage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [editPath, setEditPath] = useState<string | null>(null);
   const tabName = useTabs((s) => s.tabs.find((t) => t.serverId === serverId)?.name ?? serverId);
 
   useEffect(() => {
@@ -58,7 +61,55 @@ export default function TerminalView({ serverId, active }: { serverId: string; a
     termRef.current = term;
     fitRef.current = fit;
 
-    term.onData((d) => api.sshWrite(serverId, b64encode(d)).catch(() => {}));
+    term.parser.registerOscHandler(7, (cwd) => {
+      if (cwd.startsWith("/")) termCwd.set(serverId, cwd);
+      return true;
+    });
+    term.parser.registerOscHandler(1337, (data) => {
+      if (!data.startsWith(EDIT_PREFIX)) return false;
+      setEditPath(data.slice(EDIT_PREFIX.length));
+      return true;
+    });
+
+    // O hook é digitado quando a saída inicial (motd, prompt) fica 300ms quieta; o eco e a
+    // saída dele ficam escondidos até o marcador. Se o usuário digitar antes, fica sem hook.
+    // ponytail: prompt de 2+ linhas duplica a 1ª linha uma vez ao conectar
+    let hook: "waiting" | "hiding" | "done" = "waiting";
+    let hidden = ""; // binary string (atob), pra não quebrar UTF-8 no meio
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finishHook = (bin: string) => {
+      hook = "done";
+      clearTimeout(timer);
+      term.write(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+    };
+    const sendHook = () => {
+      hook = "hiding";
+      api.sshWrite(serverId, b64encode(SHELL_HOOK + "\n")).catch(() => finishHook(hidden));
+      // shell que não roda o hook (fish…) nunca imprime o marcador: mostra o que veio e segue
+      timer = setTimeout(() => finishHook(hidden), 2000);
+    };
+    const onOutput = (payload: string) => {
+      if (hook !== "hiding") {
+        term.write(b64decode(payload));
+        if (hook === "waiting") {
+          clearTimeout(timer);
+          timer = setTimeout(sendHook, 300);
+        }
+        return;
+      }
+      hidden += atob(payload);
+      const i = hidden.indexOf(HOOK_READY);
+      // limpa a linha do 1º prompt: o shell desenha outro logo depois do marcador
+      if (i >= 0) finishHook("\r\x1b[2K" + hidden.slice(i + HOOK_READY.length));
+    };
+
+    term.onData((d) => {
+      if (hook === "waiting") {
+        hook = "done";
+        clearTimeout(timer);
+      }
+      api.sshWrite(serverId, b64encode(d)).catch(() => {});
+    });
 
     const unlisteners: UnlistenFn[] = [];
     let disposed = false;
@@ -68,7 +119,7 @@ export default function TerminalView({ serverId, active }: { serverId: string; a
         await listen<string>(`ssh:stage:${serverId}`, (e) => setStage(e.payload)),
       );
       unlisteners.push(
-        await listen<string>(`ssh:data:${serverId}`, (e) => term.write(b64decode(e.payload))),
+        await listen<string>(`ssh:data:${serverId}`, (e) => onOutput(e.payload)),
       );
       unlisteners.push(
         await listen(`ssh:closed:${serverId}`, () => {
@@ -104,6 +155,8 @@ export default function TerminalView({ serverId, active }: { serverId: string; a
 
     return () => {
       disposed = true;
+      clearTimeout(timer);
+      termCwd.delete(serverId);
       ro.disconnect();
       unlisteners.forEach((u) => u());
       term.dispose();
@@ -138,6 +191,14 @@ export default function TerminalView({ serverId, active }: { serverId: string; a
           onRetry={retry}
         />
       )}
+      <FileEditor
+        serverId={serverId}
+        path={editPath}
+        onClose={() => {
+          setEditPath(null);
+          termRef.current?.focus();
+        }}
+      />
     </div>
   );
 }

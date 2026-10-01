@@ -26,7 +26,8 @@
 | 🗂️ **Abas** | Uma aba por conexão; clicar num servidor já conectado só foca a aba, nunca duplica |
 | 🏷️ **Tags com cor** | Categorias coloridas, agrupamento na sidebar e **drag & drop** pra reorganizar e mover entre grupos |
 | 📁 **SFTP** | Navegador de arquivos por sessão — duplo click baixa direto pro seu computador, com barra de progresso; pastas inteiras e multi-seleção |
-| 🗃️ **Modo Arquivos (GUI)** | Gerenciador de arquivos em tela cheia com editor embutido (syntax highlight), grid, menu de contexto, renomear, ou abrir em `nano`/`vim` no terminal |
+| 🗃️ **Modo Arquivos (GUI)** | Gerenciador de arquivos em tela cheia com editor embutido (syntax highlight), grid, menu de contexto, renomear, ou abrir em `nano`/`vim` no terminal. Abre na pasta onde o terminal está |
+| ✏️ **nano/vim no editor do app** | No terminal, `nano arquivo`, `vim arquivo` ou `vi arquivo` (arquivo que já existe) abre no editor embutido. Com flags, arquivo novo ou dentro de tmux/screen roda o editor de verdade; `command nano arquivo` força o do terminal. Funciona em bash, zsh e sh: o app define as funções na sessão ao conectar, sem gravar nada no servidor |
 | 📊 **Modo Monitor** | KPIs do servidor (CPU, memória, disco, uptime), stack instalada, PM2 ao vivo com detalhe por processo, sites nginx, logs Laravel, ações rápidas e kit de ajuda — [detalhes](#-modo-monitor) |
 | 📥 **Importação / exportação** | Importa CSV/JSON (cole ou escolha o arquivo; duplicados são atualizados) e exporta o vault confirmando a senha-mestre |
 | ▶️ **Snippets** | Comandos salvos que rodam com 1 click na sessão ativa (aparecem só com uma sessão conectada) |

@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open as openFile, save as saveFile } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
 import { api, b64encode, formatBytes, SftpEntry, SftpProgress } from "@/lib/api";
+import { termCwd } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,7 +95,9 @@ export default function SftpPanel({ serverId, full = false }: { serverId: string
     });
 
   useEffect(() => {
-    api.sftpHome(serverId).then(setPath).catch((e) => toast.error(String(e)));
+    const cwd = termCwd.get(serverId);
+    if (cwd) setPath(cwd);
+    else api.sftpHome(serverId).then(setPath).catch((e) => toast.error(String(e)));
   }, [serverId]);
 
   useEffect(() => {

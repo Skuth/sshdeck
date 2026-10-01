@@ -157,7 +157,7 @@ function PctCell({ value }: { value: number }) {
 /* ---------- dados do sistema ---------- */
 
 const STATS_CMD = `cat /proc/loadavg; nproc; free -b | awk 'NR==2{print $2,$3}'; df -B1 / | awk 'NR==2{print $2,$3}'; cat /proc/uptime`;
-const DETECT_CMD = `for c in pm2 nginx docker php composer node; do command -v $c >/dev/null 2>&1 && echo $c; done; command -v pm2 >/dev/null 2>&1 || pgrep -f "PM2 v" >/dev/null 2>&1 && echo pm2; [ -n "$(find /var/www /home -maxdepth 5 -type d -path '*storage/logs' 2>/dev/null | head -1)" ] && echo laravel; true`;
+const DETECT_CMD = `for c in pm2 nginx docker php composer node; do command -v $c >/dev/null 2>&1 && echo $c; done; [ -n "$(find /var/www /home -maxdepth 5 -type d -path '*storage/logs' 2>/dev/null | head -1)" ] && echo laravel; true`;
 const VERSIONS_CMD = `echo "php|$(php -v 2>/dev/null | head -1)"
 echo "php-instaladas|$(ls /etc/php 2>/dev/null | tr '\\n' ' ')"
 echo "composer|$(composer --version --no-ansi 2>/dev/null)"

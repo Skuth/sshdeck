@@ -50,6 +50,14 @@ fn get_conn(app: &tauri::AppHandle, server_id: &str) -> Result<Arc<Mutex<(Sessio
     Ok(inner)
 }
 
+/// `Sftp::create` do crate não manda a flag CREATE: arquivo novo falha com "no such file".
+fn create_file(sftp: &ssh2::Sftp, path: &str) -> Result<ssh2::File, String> {
+    use ssh2::{OpenFlags, OpenType};
+    let flags = OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::TRUNCATE;
+    sftp.open_mode(Path::new(path), flags, 0o644, OpenType::File)
+        .map_err(|e| e.to_string())
+}
+
 pub fn drop_conn(app: &tauri::AppHandle, server_id: &str) {
     app.state::<SftpState>().lock().unwrap().remove(server_id);
 }
@@ -190,8 +198,10 @@ pub async fn sftp_upload(
         let g = conn.lock().unwrap();
         let mut local = std::fs::File::open(&local_path).map_err(|e| e.to_string())?;
         let total = local.metadata().map_err(|e| e.to_string())?.len();
-        let mut remote = g.1.create(Path::new(&remote_path)).map_err(|e| e.to_string())?;
+        let mut remote = create_file(&g.1, &remote_path)?;
         pump(&app, &server_id, &remote_path, &mut local, &mut remote, total, 0)?;
+        // o drop engole erro do close; fechando aqui, falha vira erro em vez de "concluído"
+        remote.close().map_err(|e| e.to_string())?;
         emit_done(&app, &server_id, &remote_path, total);
         Ok(())
     })
@@ -320,8 +330,9 @@ pub async fn sftp_write_text(
     tauri::async_runtime::spawn_blocking(move || {
         let conn = get_conn(&app, &server_id)?;
         let g = conn.lock().unwrap();
-        let mut f = g.1.create(Path::new(&path)).map_err(|e| e.to_string())?;
-        f.write_all(content.as_bytes()).map_err(|e| e.to_string())
+        let mut f = create_file(&g.1, &path)?;
+        f.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+        f.close().map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

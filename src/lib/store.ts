@@ -20,6 +20,10 @@ interface TabsState {
   setActive: (serverId: string) => void;
 }
 
+// cwd do shell de cada aba (OSC 7 do hook). Fora do zustand de propósito: muda a cada
+// prompt e só é lido quando o modo Arquivos abre, então não precisa re-renderizar nada.
+export const termCwd = new Map<string, string>();
+
 export const useTabs = create<TabsState>((set, get) => ({
   tabs: [],
   activeId: null,
